@@ -1,19 +1,65 @@
 module config
+    use io, only error_message
+
+    implicit none
+
+    !* type definitions
+
     type config_type
-        real(8) :: cell(1:3,1:3)                        ! real space (A)
-        real(8),allocatable :: local_positions(:,:)     ! fractional coordinates /(A) 
-        real(8),allocatable :: all_positions(:,:)       ! cartesian coordinates of relevant atom images (A)
-        integer :: nall                                 ! atoms in ultracell
+        real(8) :: cell(1:3,1:3)                            ! real space (A)
+        real(8),allocatable :: local_positions(:,:)         ! fractional coordinates /(A) 
+        real(8),allocatable :: all_positions(:,:)           ! cartesian coordinates of relevant atom images (A)
+        integer :: nall                                     ! atoms in ultracell
     end type config_type
 
 
-    real(8),public :: rcut                              ! interaction cut off (A)
-    type(config_type),public :: structure               ! instance of configuration info
+    type bispect_param_type
+        real(8) :: rcut                                     ! interaction cut off (A)
+        integer :: lmax                                     ! spherical component
+        integer :: nmax                                     ! radial component
+    end type bispect_param_type
 
+    !* type instances
+
+    type(config_type),public :: structure                   ! instance of configuration info
+    type(bispect_param_type),public :: bispect_param        ! instance of bispectrum parameters
+
+    !* buffer arrays to remove redunant computation
+    
+    real(8),allocatable :: buffer_spherical_harm_const(:,:) ! constant to spherical harmonics (m,l)
+    real(8),allocatable :: buffer_radial_phi_Nalpha(:)      ! normalizing constant for alpha       
+    real(8),allocatable :: buffer_radial_g(:,:)             ! radial components for given grid point
+    real(8),allocatable :: buffer_radial_w(:,:)             ! radial normalization matrix W         
+    real(8),allocatable :: buffer_spherical_p(:,:,:)        ! associated legendre polynomial
 
     contains
         !* methods
         
+        subroutine bispect_param_type__set_rcut(type_instance,rcut)
+            implicit none
+
+            type(bispect_param_type),intent(inout) :: type_instance
+            real(8),intent(in) :: rcut
+            
+            type_instance%rcut = rcut
+        end subroutine bispect_param_type__set_rcut
+
+        subroutine bispect_param_type__set_ln(type_instance,lmax,nmax)
+            implicit none
+
+            type(bispect_param_type),intent(inout) :: type_instance
+            integer,intent(in) :: lmax,nmax
+
+            if (lmax.le.0) then
+                call error_message("bispect_param_type__set_ln","must give lmax>0")
+            else if (nmax.le.0) then
+                call error_message("bispect_param_type__set_ln","must give nmax>0")
+            end if
+
+            type_instance%lmax = lmax
+            type_instance%nmax = nmax
+        end subroutine bispect_param_type__set_ln
+
         subroutine config_type__generate_ultracell(neigh_images)
             implicit none
 
@@ -91,7 +137,7 @@ module config
             if(allocated(polar)) then
                 deallocate(polar)
             end if
-            rcut2 = rcut**2
+            rcut2 = bispect_param%rcut**2
 
             cntr = 0
             do ii=1,structure%nall,1
