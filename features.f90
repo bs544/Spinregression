@@ -4,6 +4,8 @@ module features
     use config
     use io, only :: error_message
 
+    real(8),external :: ddot
+
     implicit none
 
     contains
@@ -81,7 +83,7 @@ module features
             call config_type__generate_ultracell(neigh_images)
        
             !* remove redunancy 
-            call init_buffer_all()
+            call init_buffer_all_general()
 
             if (.not.parallel) then
                 loop(1) = 1
@@ -103,7 +105,7 @@ module features
         subroutine features_bispectrum_type1(polar,x)
             ! concacenation order:
             !
-            ! for l in [1,lmax]:
+            ! for l in [0,lmax]:
             !     for n in [1,nmax]:
 
             implicit none
@@ -113,22 +115,45 @@ module features
             real(8),intent(inout) :: x(:)
             
             !* scratch
-            integer :: dim(1:2)
-            integer :: Nneigh,ll,nn
+            integer :: dim(1:2),cntr
+            integer :: Nneigh,ll,nn,ii
+            real(8) :: val_ln,reduce_array(1:2),tmp1,tmp2(1:2)
 
             dim = shape(polar)
 
             !* number of neighbouring atoms to grid point
             Nneigh = dim(1)
 
-            !* calculate radial components [alpha,neighbour]
-            call init_radial_g(polar)
+            !* redundancy arrays specific to grid point
+            call init_buffer_all_polar(polar)
 
+            cntr = 1
             do ll=0,bispect_param%lmax,1
                 do nn=1,bispect_param%nmax,1    
-                    do mm=-ll,ll 
-                        const_lm = spherical_harm_const(ll,mm)
+                    do mm=1,ll 
+                        reduce_array = 0.0d0
+                        
+                        neighbour_loop : do ii=1,Nneigh,1
+                            tmp1 = buffer_radial_g(ii,nn)*buffer_spherical_p(ii,mm,ll)
+
+                            tmp2(1) = tmp1*buffer_polar_sc(1,ii)
+                            tmp2(2) = tmp1*buffer_polar_sc(2,ii)
+
+                            reduce_array = reduce_array + tmp2
+                        end do neighbour_loop
+
+                        val_ln = val_ln + spherical_harm_const(ll,mm)*sum(reduce_array**2)
                     end do
+                    
+                    !* count -,+mm
+                    val_ln = val_ln*2.0d0
+
+                    !* m=0 contribution : cos(m phi)=1,sin(m phi)=0
+                    val_ln = val_ln + ddot(Nneigh,buffer_radial_g(:,nn),1,buffer_spherical_p(:,0,ll))**2 * &
+                    &spherical_harm_const(ll,0)
+
+                    x(cntr) = val_ln
+                    cntr = cntr + 1
                 end do
             end do
         end subroutine features_bispectrum_type1
@@ -166,12 +191,12 @@ module features
             spherical_harm_const__sub1 = m + bispect_param%lmax + 1
         end function spherical_harm_const__sub1
 
-        subroutine init_buffer_all()
+        subroutine init_buffer_all_general()
             implicit none
 
             call init_buffer_spherical_harm_const()
             call init_buffer_radial_phi_Nalpha()
-        end subroutine init_buffer_all
+        end subroutine init_buffer_all_general
 
         subroutine init_buffer_spherical_harm_const()
             implicit none
@@ -235,6 +260,7 @@ module features
         subroutine init_buffer_spherical_p(polar)
             ! calculate associated legendre polynomail for cos(theta_j) for all
             ! atoms j
+            use spherical_harmonics, only : plgndr
 
             implicit none
 
@@ -243,8 +269,71 @@ module features
 
             !* scratch
             integer :: dim(1:2)
+            integer :: Nneigh,mm,ll,ii
 
-        end subroutine
+            !* number of neighbouring atoms
+            dim = shape(dim)
+            Nneigh = dim(2)
+
+            if(allocated(buffer_spherical_polar)) then
+                deallocate(buffer_spherical_polar)
+            end if
+            allocate(buffer_spherical_polar(1:Nneigh,0:bispect_param%lmax,0:bispect_param%lmax)
+
+            !*              m       l
+            !* [1,Nneigh][0,lmax][0,lmax]
+            buffer_spherical_polar = 0.0d0
+
+            do ll=0,bispect_param%lmax,1
+                do mm=0,ll,1
+                    do ii=1,Nneigh,1
+                        buffer_spherical_p(ii,mm,ll) = plgndr(ll,mm,cos(polar(2,ii)))
+                    end do
+                end do
+            end do
+        end subroutine init_buffer_spherical_p
+
+        subroutine init_buffer_polar_sc(polar)
+            implicit none
+
+            !* args
+            real(8),intent(in) :: polar(:)
+
+            !* scratch
+            integer :: dim(1:2),Nneigh,ii
+
+            dim = shape(polar)
+
+            Nneigh = dim(2)
+
+            if(allocated(buffer_polar_sc)) then
+                deallocate(buffer_polar_sc)
+            end if
+            allocate(buffer_polar_sc((1:2,1:Nneigh)))
+            
+            do ii=1,Nneigh,1
+                !* (cos(phi),sin(phi))
+                buffer_polar_sc(1,ii) = cos(polar(3,ii))
+                buffer_polar_sc(2,ii) = sin(polar(3,ii))
+            end do
+        end subroutine init_buffer_polar_sc
+
+        subroutine init_buffer_all_polar(polar)
+            ! initialise and compute all redundancy arrays for info specific
+            ! to a particular density grid point
+            implicit none
+
+            real(8),intent(in) :: polar(:,:)            
+
+            !* associated legendre polynomials of polar angle
+            call init_buffer_spherical_p(polar)
+
+            !* trigonometric bases for azimuthal angle
+            call init_buffer_polar_sc(polar)
+        
+            !* radial component in radial bases
+            call init_radial_g(polar)
+        end subroutine init_buffer_all_polar
 
         real(8) function spherical_harm_const__sub2(ll,mm)
             implicit none
@@ -302,11 +391,11 @@ module features
             if (allocated(buffer_radial_g)) then
                 deallocate(buffer_radial_g)
             end if
-            allocate(buffer_radial_g(bispect_param%nmax,Nneigh))
+            allocate(buffer_radial_g(Nneigh,bispect_param%nmax))
 
-            do ii=1,Nneigh,1
-                do nn=1,bispect%param%nmax,1
-                    phi(nn,ii) = radial_phi_type1(nn,polar(1,ii))
+            do nn=1,bispect%param%nmax,1
+                do ii=1,Nneigh,1
+                    phi(ii,nn) = radial_phi_type1(nn,polar(1,ii))
                 end do
             end do        
 

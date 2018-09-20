@@ -31,6 +31,7 @@ module config
     real(8),allocatable :: buffer_radial_g(:,:)             ! radial components for given grid point
     real(8),allocatable :: buffer_radial_w(:,:)             ! radial normalization matrix W         
     real(8),allocatable :: buffer_spherical_p(:,:,:)        ! associated legendre polynomial
+    real(8),allocatable :: buffer_polar_sc(:,:)             ! [cos(theta),sin(theta) for neighbour for grid point]
 
     contains
         !* methods
