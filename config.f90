@@ -4,6 +4,7 @@ module config
     implicit none
 
     real(8),external :: dnrm2
+    external :: dgemm
 
     !* type definitions
 
@@ -95,7 +96,7 @@ module config
            end do
 
             !* cartesians
-            call degmm('n','n',3,nall,3,1.0d0,structure%cell,3,structure%all_positions,3,0.0d0,&
+            call dgemm('n','n',3,nall,3,1.0d0,structure%cell,3,structure%all_positions,3,0.0d0,&
             &structure%all_positions) 
 
             structure%nall = nall

@@ -6,7 +6,6 @@ module boundaries
     
     !* linear algebra routines
     external :: dgemv    
-    real(8),external :: dnrm2
 
     integer,private,parameter :: buffer_size1=100
 
@@ -26,14 +25,16 @@ module boundaries
             ! assume atoms are located along all faces of local cell
 
             implicit none
+    
+            real(8),external :: dnrm2
 
             ! args
-            real(8),intent(inout) :: neighbouring_images(:,:)
+            real(8),allocatable,intent(inout) :: neighbouring_images(:,:)
 
             !* scratch
             real(8) :: scratch_images(1:3,1:buffer_size1)
             integer :: n1,n2,n3,cntr,lim
-            real(8) :: dn(1:3),dr_vec(1:3)
+            real(8) :: dn(1:3),dr_vec(1:3),dr
 
             !* max distance is lim adjacent images
             lim=10
@@ -52,7 +53,7 @@ module boundaries
                         !* displacement magniture (cartesians)
                         dr = dnrm2(3,dr_vec,1)
 
-                        if (dr.le.rcut) then
+                        if (dr.le.bispect_param%rcut) then
                             cntr = cntr +1
                             scratch_images(1,cntr) = dble(n1)  
                             scratch_images(2,cntr) = dble(n2)
@@ -61,6 +62,7 @@ module boundaries
                             if (cntr+1.gt.buffer_size1) then
                                 call error_message("find_neighbouring_images",&
                                     &"increase buffer_size1")
+                            end if
                         end if
                     end do
                 end do

@@ -3,6 +3,7 @@
 module features
     use config
     use io, only : error_message
+    use boundaries, only : find_neighbouring_images
 
     implicit none
    
@@ -368,7 +369,7 @@ module features
             dim = shape(polar)
             Nneigh = dim(2)
 
-            allocate(phi(bispect_param%nmax,Nneigh))
+            allocate(phi(Nneigh,bispect_param%nmax))
             if (allocated(buffer_radial_g)) then
                 deallocate(buffer_radial_g)
             end if
@@ -380,9 +381,9 @@ module features
                 end do
             end do        
 
-            !* g_ni = sum_alpha W_n,alpha phi_alpha,i
-            call dgemm('n','n',bispect_param%nmax,Nneigh,bispect_param%nmax,1.0d0,buffer_radial_overlap_w,bispect_param%nmax,&
-            &phi,bispect_param%nmax,0.0d0,buffer_radial_g,bispect_param%nmax)
+            !* g_i,beta = sum_alpha W_beta,alpha phi_i,alpha
+            call dgemm('n','n',Nneigh,bispect_param%nmax,bispect_param%nmax,1.0d0,phi,Nneigh,&
+            &buffer_radial_overlap_w,bispect_param%nmax,0.0d0,buffer_radial_g,Nneigh)
         end subroutine init_radial_g
 
         subroutine init_buffer_radial_basis_overlap()
