@@ -1,7 +1,9 @@
 module config
-    use io, only error_message
+    use io, only : error_message
 
     implicit none
+
+    real(8),external :: dnrm2
 
     !* type definitions
 
@@ -29,9 +31,10 @@ module config
     real(8),allocatable :: buffer_spherical_harm_const(:,:) ! constant to spherical harmonics (m,l)
     real(8),allocatable :: buffer_radial_phi_Nalpha(:)      ! normalizing constant for alpha       
     real(8),allocatable :: buffer_radial_g(:,:)             ! radial components for given grid point
-    real(8),allocatable :: buffer_radial_w(:,:)             ! radial normalization matrix W         
     real(8),allocatable :: buffer_spherical_p(:,:,:)        ! associated legendre polynomial
     real(8),allocatable :: buffer_polar_sc(:,:)             ! [cos(theta),sin(theta) for neighbour for grid point]
+    real(8),allocatable :: buffer_radial_overlap_s(:,:)     ! overlap matrix of radial bases
+    real(8),allocatable :: buffer_radial_overlap_w(:,:)     ! linear combination coefficients from basis overlap
 
     contains
         !* methods
@@ -128,7 +131,7 @@ module config
 
             !* args
             real(8),intent(in) :: gridpoint(1:3)
-            real(8),intent(inout) :: polar(:,:)
+            real(8),allocatable,intent(inout) :: polar(:,:)
 
             !* scratch
             real(8) :: rcut2,dr_vec(1:3)

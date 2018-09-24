@@ -2,11 +2,12 @@
 
 module features
     use config
-    use io, only :: error_message
-
-    real(8),external :: ddot
+    use io, only : error_message
 
     implicit none
+   
+    !* blas/lapack 
+    real(8),external :: ddot
 
     contains
         integer function cardinality_bispectrum_type1(lmax,nmax)
@@ -116,7 +117,7 @@ module features
             
             !* scratch
             integer :: dim(1:2),cntr
-            integer :: Nneigh,ll,nn,ii
+            integer :: Nneigh,ll,nn,ii,mm
             real(8) :: val_ln,reduce_array(1:2),tmp1,tmp2(1:2)
 
             dim = shape(polar)
@@ -196,6 +197,7 @@ module features
 
             call init_buffer_spherical_harm_const()
             call init_buffer_radial_phi_Nalpha()
+            call init_buffer_radial_basis_overlap()
         end subroutine init_buffer_all_general
 
         subroutine init_buffer_spherical_harm_const()
@@ -235,27 +237,6 @@ module features
             end do
         end subroutine init_buffer_radial_phi_Nalpha
 
-        subroutine init_buffer_radial_w()
-            implicit none
-
-            !* scratch
-            real(8),allocatable :: S(:,:),ii,jj
-
-            allocate(S(bispect_param%nmax,bispect_param%nmax))
-            if (allocated(buffer_radial_w)) then
-                deallocate(buffer_radial_w)
-            end if
-            allocate(buffer_radial_w(bispect_param%nmax,bispect_param%nmax))
-
-            do ii=1,bispect_param%nmax,1
-                do jj=1,bispect_param%nmax,1
-                    S(ii,jj) = sqrt( (5.0d0+2.0d0*dble(ii))*(5.0d0+2.0d0*dble(jj)) ) / (5.0d0 + dble(ii) + dble(jj))
-                end do
-            end do
-
-            !* W = S^{-1/2}
-            buffer_radial_w = 0.0d0 ! THIS IS WRONG
-        end subroutine init_buffer_radial_w
 
         subroutine init_buffer_spherical_p(polar)
             ! calculate associated legendre polynomail for cos(theta_j) for all
@@ -272,17 +253,17 @@ module features
             integer :: Nneigh,mm,ll,ii
 
             !* number of neighbouring atoms
-            dim = shape(dim)
+            dim = shape(polar)
             Nneigh = dim(2)
 
-            if(allocated(buffer_spherical_polar)) then
-                deallocate(buffer_spherical_polar)
+            if(allocated(buffer_spherical_p)) then
+                deallocate(buffer_spherical_p)
             end if
-            allocate(buffer_spherical_polar(1:Nneigh,0:bispect_param%lmax,0:bispect_param%lmax)
+            allocate(buffer_spherical_p(1:Nneigh,0:bispect_param%lmax,0:bispect_param%lmax))
 
             !*              m       l
             !* [1,Nneigh][0,lmax][0,lmax]
-            buffer_spherical_polar = 0.0d0
+            buffer_spherical_p = 0.0d0
 
             do ll=0,bispect_param%lmax,1
                 do mm=0,ll,1
@@ -297,7 +278,7 @@ module features
             implicit none
 
             !* args
-            real(8),intent(in) :: polar(:)
+            real(8),intent(in) :: polar(:,:)
 
             !* scratch
             integer :: dim(1:2),Nneigh,ii
@@ -309,7 +290,7 @@ module features
             if(allocated(buffer_polar_sc)) then
                 deallocate(buffer_polar_sc)
             end if
-            allocate(buffer_polar_sc((1:2,1:Nneigh)))
+            allocate(buffer_polar_sc(1:2,1:Nneigh))
             
             do ii=1,Nneigh,1
                 !* (cos(phi),sin(phi))
@@ -359,7 +340,7 @@ module features
             if (x.eq.0) then
                 res = 1
             else if (x.gt.0) then
-                res = x*factoriral(x-1)
+                res = x*factorial(x-1)
             else
                 call error_message("factorial","negative argument passed to factorial")
             end if
@@ -393,15 +374,44 @@ module features
             end if
             allocate(buffer_radial_g(Nneigh,bispect_param%nmax))
 
-            do nn=1,bispect%param%nmax,1
+            do nn=1,bispect_param%nmax,1
                 do ii=1,Nneigh,1
                     phi(ii,nn) = radial_phi_type1(nn,polar(1,ii))
                 end do
             end do        
 
             !* g_ni = sum_alpha W_n,alpha phi_alpha,i
-            call dgemm('n','n',bispect_param%nmax,Nneigh,bispect_param%nmax,1.0d0,buffer_radial_w,bispect_param%nmax,&
+            call dgemm('n','n',bispect_param%nmax,Nneigh,bispect_param%nmax,1.0d0,buffer_radial_overlap_w,bispect_param%nmax,&
             &phi,bispect_param%nmax,0.0d0,buffer_radial_g,bispect_param%nmax)
         end subroutine init_radial_g
 
+        subroutine init_buffer_radial_basis_overlap()
+            ! compute radial basis overlap matrix S_ij = <phi_i | phi_j>
+            ! and the square root inverse, W = S^{-1/2}
+            use utility, only : sqrt_of_matrix_inverse
+
+            implicit none
+
+            integer :: ii,jj
+
+            if(allocated(buffer_radial_overlap_s)) then
+                deallocate(buffer_radial_overlap_s)
+            end if
+            if(allocated(buffer_radial_overlap_w)) then
+                deallocate(buffer_radial_overlap_w)
+            end if
+            allocate(buffer_radial_overlap_s(bispect_param%nmax,bispect_param%nmax))
+            allocate(buffer_radial_overlap_w(bispect_param%nmax,bispect_param%nmax))
+
+            !* overlap matrix S_ij = <phi_i | phi_j>
+            do ii=1,bispect_param%nmax,1
+                do jj=1,bispect_param%nmax,1
+                    buffer_radial_overlap_s(ii,jj) = sqrt( (5.0d0+2.0d0*dble(ii))*(5.0d0+2.0d0*dble(jj)) ) /&
+                    & (5.0d0 + dble(ii) + dble(jj))
+                end do
+            end do
+
+            !* cmopute W = S^{-1/2}
+            call sqrt_of_matrix_inverse(buffer_radial_overlap_s,buffer_radial_overlap_w)
+        end subroutine init_buffer_radial_basis_overlap
 end module features
