@@ -3,9 +3,11 @@ module utility
     
     external :: dsyev
     external :: dgemv
+    external :: dgetrf
+    external :: dgetri
 
     contains
-        subroutine sqrt_of_matrix_inverse(symmetric_matrix)
+        subroutine sqrt_of_matrix_inverse(symmetric_matrix,invsqrt)
             ! perform inverse via eigen decomposition
             ! B = V D V^{-1} where D is diagonal matrix of eigenvalues, then
             ! B^{1/2} = V D^{1/2} V^{-1}
@@ -20,7 +22,39 @@ module utility
             ! eigenvalues of B
             implicit none
     
-            real(8),intent(in) :: symmetric_matrix 
+            !* args
+            real(8),intent(in) :: symmetric_matrix(:,:)
+            real(8),intent(inout) :: invsqrt(:,:)
+
+            !* scratch
+            real(8),allocatable,dimension(:,:) :: V,D,invV   
+            real(8),allocatable,dimension(:,:) :: tmp1,tmp2
+            integer :: ii,dim(1:2)
+
+            !* A = V D V^{-1} = V D V^T since V^{-1}=V^T when A is symmetric
+            call symmetric_eigen_decomposition(symmetric_matrix,V,D,invV)
+
+            dim = shape(symmetric_matrix)
+            do ii=1,dim(1)
+                if (D(ii,ii).lt.0.0d0) then
+                    write(*,*) "Error in sqrt_of_matrix_inverse : negative eigenvalue ",D(ii,ii),"computed",&
+                    &"matrix must be positive definite (no negative eigenvalues"
+                    call exit(0)
+                end if
+
+                !* A^{-1/2} = V D^{-1/2} V^^{-1} : D^{-1/2}_ii = 1.0/sqrt(D_ii)
+                D(ii,ii) = 1.0/sqrt(D(ii,ii))
+            end do
+
+            allocate(tmp1(dim(1),dim(2)))
+            allocate(tmp2(dim(1),dim(2)))
+
+
+            !* tmp1 = D^{-1/2} V^{-1} = D^{-1/2} V^T
+            call dgemm('n','n',dim(1),dim(2),dim(2),1.0d0,D,dim(1),invV,dim(2),0.0d0,tmp1,dim(1))
+           
+            !* invsqrt = V D^{-1/2} V^{-1}
+            call dgemm('n','n',dim(1),dim(2),dim(2),1.0d0,V,dim(1),tmp1,dim(2),0.0d0,invsqrt,dim(1))
         end subroutine sqrt_of_matrix_inverse
 
         subroutine eigen_vectors_values(symmetric_matrix,eigenvalues,eigenvectors)
@@ -59,7 +93,7 @@ module utility
                     end if                    
 
                     if (abs(symmetric_matrix(ii,jj)-symmetric_matrix(jj,ii)).gt.atol) then
-                        write(*,*) "Error in eigen_vectors_values : matrix not symmetryic : ",&
+                        write(*,*) "Error in eigen_vectors_values : matrix not symmetric : ",&
                         &symmetric_matrix(ii,jj),"!=",symmetric_matrix(jj,ii)
                         call exit(0) 
                     end if
@@ -130,12 +164,11 @@ module utility
                         end if
                     end if
                 end do
-                write(*,*) tmp,eig_values(ii)*eig_vectors(:,ii)
             end do
             check_eigen_vectors_values = res
         end function check_eigen_vectors_values
 
-        subroutine symmetric_eigen_decomposition(symmetric_matrix)
+        subroutine symmetric_eigen_decomposition(symmetric_matrix,V,D,invV)
             ! perform eigen decomposition for symmetric matrix by constructing
             ! diagonals of eigenvalues D and matrix of eigenvectors V such that
             ! V_ij = ith component of jth eigenvector
@@ -146,68 +179,135 @@ module utility
             implicit none
 
             real(8),intent(in) :: symmetric_matrix(:,:)
+            real(8),allocatable,intent(inout) :: V(:,:),D(:,:),invV(:,:)
 
             !* scratch
-            real(8),allocatable :: V(:,:),D(:,:),eig_vals(:)
-            integer :: dim(1:2),ii
+            real(8),allocatable :: eig_vals(:)
+            integer :: dim(1:2),ii,jj
 
             call eigen_vectors_values(symmetric_matrix,eig_vals,V)
 
             dim = shape(V)
             allocate(D(dim(1),dim(2)))
+            allocate(invV(dim(1),dim(2)))
 
             D = 0.0d0
             do ii=1,dim(1)
                 D(ii,ii) = eig_vals(ii)
             end do 
+
+            !* V^{-1} = V^T when A is symmetric
+            do ii=1,dim(1)
+                do jj=1,dim(2)
+                    invV(ii,jj) = V(jj,ii)
+                end do
+            end do
         end subroutine symmetric_eigen_decomposition
 
-        subroutine check_symmetric_eigen_decomposition(symmetric_matrix,V,D)
+        logical function check_symmetric_eigen_decomposition(symmetric_matrix,V,D,invV,verbose)
             ! check that A = V D V^{-1}                
             ! When A is symmetric, V^{-1}=V^T
 
             implicit none
 
             !* args
-            real(8),intent(in) :: symmetric_matrix(:,:),V(:,:),D(:,:)
+            real(8),intent(in) :: symmetric_matrix(:,:),V(:,:),D(:,:),invV(:,:)
+            logical,optional,intent(in) :: verbose
 
             !* scratch
-            real(8),allocatable :: tmp1(:,:),tmp2(:,:),tmp3(:,:)
+            real(8),allocatable :: tmp2(:,:),tmp3(:,:)
             integer :: dim(1:2),ii,jj
             logical :: res=.true.
+            real(8) :: atol
 
             dim = shape(symmetric_matrix)
 
-            allocate(tmp1(dim(1),dim(2)))
             allocate(tmp2(dim(1),dim(2)))
             allocate(tmp3(dim(1),dim(2)))
 
-            do ii=1,dim(1)
-                do jj=1,dim(2)
-                    ! V^T
-                    tmp1(ii,jj) = V(jj,ii)
-                end do
-            end do
-
             !* tmp2 = D V^T
-            call dgemm('n','n',dim(1),dim(2),dim(2),1.0d0,D,dim(1),tmp1,0.0d0,tmp2)
+            call dgemm('n','n',dim(1),dim(2),dim(2),1.0d0,D,dim(1),invV,dim(2),0.0d0,tmp2,dim(1))
 
             !* tmp3 = V tmp2 = V D V^T
-            call dgemm('n','n',dim(1),dim(2),dim(2),1.0d0,V,dim(1),tmp2,0.0d0,tmp3)
+            call dgemm('n','n',dim(1),dim(2),dim(2),1.0d0,V,dim(1),tmp2,dim(2),0.0d0,tmp3,dim(1))
 
             !* check that A = V D V^T
             do ii=1,dim(1)
                 do jj=1,dim(2)
-                    if (abs(symmetric_matrix(ii,jj)).gt.dble(1e-15)**2) then
+                    if (abs(symmetric_matrix(ii,jj)).lt.dble(1e-15)**2) then
                         atol = dble(1e-12)**2
+                    else  
+                        atol = abs(symmetric_matrix(ii,jj))*dble(1e-9)
                     end if
-                    atol = abs(symmetric_matrix(ii,jj))*dble(1e-9)
 
                     if (abs(symmetric_matrix(ii,jj)-tmp3(ii,jj)).gt.atol) then
+                        if (present(verbose)) then
+                            if (verbose) then
+                                write(*,*) "Error in check_symmetric_eigen_decomposition : Decomposition failed with ",&
+                                &symmetric_matrix(ii,jj),tmp3(ii,jj)
+                            end if
+                        end if
                         res = .false.
                     end if
                 end do
             end do
             check_symmetric_eigen_decomposition = res
-        end subroutine check_symmetric_eigen_decomposition
+        end function check_symmetric_eigen_decomposition
+
+        logical function check_sqrt_inv_matrix(symmetric_matrix,invsqrt,verbose)
+            ! check that invsqrt*invsqrt = symmetric_matrix^{-1}
+            implicit none
+
+            !* args
+            real(8),intent(in),dimension(:,:) :: symmetric_matrix,invsqrt
+            logical,optional,intent(in) :: verbose
+
+            !* scratch
+            integer :: dim(1:2),info,ii,jj
+            real(8),allocatable,dimension(:,:) :: matrix_inv_lhs,matrix_inv_rhs
+            integer,allocatable :: ipiv(:)            
+            real(8),allocatable :: work(:)
+            real(8) :: atol
+            logical :: res=.true.
+
+            dim = shape(symmetric_matrix) 
+            allocate(matrix_inv_lhs(dim(1),dim(2)))
+            allocate(matrix_inv_rhs(dim(1),dim(2)))
+            allocate(ipiv(dim(1)))  
+            allocate(work(dim(1)))
+
+            matrix_inv_lhs(:,:) = symmetric_matrix(:,:)
+            
+            !* do easy part first, rhs = invsrqt . invsqrt
+            call dgemm('n','n',dim(1),dim(2),dim(2),1.0d0,invsqrt,dim(1),invsqrt,dim(2),0.0d0,matrix_inv_rhs,dim(1))
+            
+            !* invert
+            call dgetrf(dim(1),dim(1),matrix_inv_lhs,dim(1),ipiv,info)
+            call dgetri(dim(1),matrix_inv_lhs,dim(1),ipiv,work,dim(1),info)
+            if (info.ne.0) then
+                write(*,*) "Error : matrix inversion in check_sqrt_inv_matrix failed"
+                call exit(0)
+            end if 
+
+            do ii=1,dim(1)
+                do jj=1,dim(1)
+                    if (abs(matrix_inv_lhs(ii,jj)).lt.dble(1e-15)**2) then
+                        atol = dble(1e-12)**2
+                    else
+                        atol = abs(matrix_inv_lhs(ii,jj))*dble(1e-9)
+                    end if
+
+                    if (abs(matrix_inv_lhs(ii,jj)-matrix_inv_rhs(ii,jj)).gt.atol) then
+                        res = .false.
+                        if (present(verbose)) then
+                            if (verbose) then
+                                write(*,*) "Failing equality in check_sqrt_inv_matrix of ",&
+                                &matrix_inv_lhs(ii,jj),matrix_inv_rhs(ii,jj)
+                            end if
+                        end if
+                    end if
+                end do
+            end do
+            check_sqrt_inv_matrix = res
+        end function check_sqrt_inv_matrix
 end module utility
