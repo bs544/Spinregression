@@ -1,6 +1,6 @@
 #!/bin/bash
 
-modulename="bispectrum"
+modulename="bispectrum_f90api"
 
 f1="io"
 f2="config"
@@ -23,6 +23,7 @@ do
 done
 
 functions_to_expose="calculate_bispectrum_type1"
+functions_to_expose+=" cardinality_bispectrum_type1"
 modules_to_expose="features.f90"
 
 export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libgfortran.so.3
@@ -30,4 +31,4 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libgfortran.so.3
 f90wrap -m $modulename $modules_to_expose -k kind_map -S 12 --only $functions_to_expose
 f2py -c -m $modulename -llapack -lblas f90wrap_*.f90 *.o --f90flags="-fPIC -fopenmp -llapack -lblas" -lgomp --fcompiler=gfortran
 
-#rm $modulename".py"
+rm $modulename".py"
