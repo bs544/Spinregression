@@ -71,7 +71,6 @@ module boundaries
                     end do
                 end do
             end do 
- 
             !* (3,num_images)
             allocate(neighbouring_images(3,cntr))
             neighbouring_images(:,:) = scratch_images(:,1:cntr) 

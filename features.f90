@@ -131,8 +131,13 @@ module features
                     !* generate [[r,theta,phi] for atom neighbouring frid point ii]
                     call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar)
 
-                    !* get type1 features
-                    call features_bispectrum_type1(polar,X(:,ii)) 
+                    if(.not.allocated(polar)) then
+                        !* do atoms within local approximation
+                        X(:,ii) = 0.0d0
+                    else
+                        !* get type1 features
+                        call features_bispectrum_type1(polar,X(:,ii)) 
+                    end if
                 end do
                 
                 !$omp end parallel

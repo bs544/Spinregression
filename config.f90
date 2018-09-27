@@ -73,10 +73,11 @@ module config
 
             !* scratch
             integer :: dim(1:2),ncells,natm,ii,jj,nall
-            
+            real(8),allocatable :: arraycopy(:,:)           
+ 
             dim = shape(neigh_images)
             ncells = dim(2)
-
+            
             if(.not.allocated(structure%local_positions)) then
                 call error_message("config_type__generate_ultracell","initialise local_positions")
             end if
@@ -84,7 +85,7 @@ module config
             natm = dim(2)
 
             nall = natm*ncells
-
+            
             if(allocated(structure%all_positions)) deallocate(structure%all_positions)
             allocate(structure%all_positions(1:3,1:nall))
 
@@ -94,13 +95,19 @@ module config
                     structure%all_positions(:,(ii-1)*natm+jj) = structure%local_positions(:,jj) +&
                     &neigh_images(:,ii)
                 end do
-           end do
+            end do
+
+            !* can't use read+write to same var in lapack/blas
+            allocate(arraycopy(1:3,1:nall))
+            arraycopy = structure%all_positions
 
             !* cartesians
-            call dgemm('n','n',3,nall,3,1.0d0,structure%cell,3,structure%all_positions,3,0.0d0,&
+            call dgemm('n','n',3,nall,3,1.0d0,structure%cell,3,arraycopy,3,0.0d0,&
             &structure%all_positions,3) 
-
+            
             structure%nall = nall
+
+            deallocate(arraycopy)
         end subroutine config_type__generate_ultracell
 
         subroutine config_type__set_cell(cell)
