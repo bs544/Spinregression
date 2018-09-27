@@ -172,7 +172,9 @@ module features
             
             cntr = 1
             do ll=0,bispect_param%lmax,1
-                do nn=1,bispect_param%nmax,1    
+                do nn=1,bispect_param%nmax,1   
+                    val_ln = 0.0d0
+     
                     ! reduce page thrashing later
                     tmp3 = buffer_spherical_harm_const(0,ll)
             
@@ -196,7 +198,7 @@ module features
                     
                     !* m=0 contribution : cos(m phi)=1,sin(m phi)=0
                     val_ln = val_ln + ddot(Nneigh,buffer_radial_g(:,nn),1,buffer_spherical_p(:,0,ll),1)**2 * tmp3
-
+                    
                     x(cntr) = val_ln
                     cntr = cntr + 1
                 end do
@@ -225,7 +227,7 @@ module features
             allocate(buffer_spherical_harm_const(0:bispect_param%lmax,0:bispect_param%lmax))
             buffer_spherical_harm_const = 0.0d0            
 
-            do ll=1,bispect_param%lmax,1
+            do ll=0,bispect_param%lmax,1
                 do mm=0,ll
                     buffer_spherical_harm_const(mm,ll) = spherical_harm_const__sub1(mm,ll)
                 end do
