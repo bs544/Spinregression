@@ -190,7 +190,7 @@ module config
             dim = shape(structure%local_positions)
             do ii=1,dim(2)
                 do jj=1,3
-                    if ((structure%local_positions(jj,ii).le.0.0d0).or.&
+                    if ((structure%local_positions(jj,ii).lt.0.0d0).or.&
                     &(structure%local_positions(jj,ii).gt.1.0d0)) then
                         !* sanity check
                         call error_message("config_type__wrap_atom_positions","failed to wrap positions")
