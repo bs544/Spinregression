@@ -1,4 +1,6 @@
 module utility
+    use io
+
     implicit none
     
     external :: dsyev

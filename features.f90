@@ -4,6 +4,7 @@ module features
     use config
     use io, only : error_message
     use boundaries, only : find_neighbouring_images
+    use utility, only : load_balance_alg_1
 
     implicit none
    
@@ -128,6 +129,8 @@ module features
                     !* get type1 features
                     call features_bispectrum_type1(polar,X(:,ii)) 
                 end do
+                
+                !$omp end parallel
             end if            
         end subroutine calculate_bispectrum_type1
 
