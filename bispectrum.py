@@ -3,6 +3,7 @@ module for bispectrum features around atoms
 """
 from features.bispectrum_f90api import f90wrap_calculate_bispectrum_type1 as f90_bi_type1
 from features.bispectrum_f90api import f90wrap_cardinality_bispectrum_type1 as f90_num_features_type1
+import numpy as np
 
 def bispectrum(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form=1):
     """
@@ -45,12 +46,12 @@ def bispectrum(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form=1):
     if form not in [1]:
         raise FeaturesError("bispectrum type {} not supported".format(form))
 
-    num_features = getattr(f90_num_features_type1)(lmax=lmax,nmax=nmax)
+    num_features = f90_num_features_type1(lmax=lmax,nmax=nmax)
 
     X = np.zeros((num_features,xyz.shape[0]),dtype=np.float64,order='F')
 
-    getattr(f90_bi_type1)(cell=format_py_to_f90(cell),atom_positions=format_py_to_f90(atom_positions),\
-            grid_coordinates=format_py_to_f90(xyz),rcut=rcut,parallel=parallel,lmax=lmax,nmax=nmax,X=X)
+    f90_bi_type1(cell=format_py_to_f90(cell),atom_positions=format_py_to_f90(atom_pos_uvw),\
+            grid_coordinates=format_py_to_f90(xyz),rcut=rcut,parallel=parallel,lmax=lmax,nmax=nmax,x=X)
 
     return np.asarray(X.T,order='C')
 
