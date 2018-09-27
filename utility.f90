@@ -310,4 +310,39 @@ module utility
             end do
             check_sqrt_inv_matrix = res
         end function check_sqrt_inv_matrix
+
+        subroutine load_balance_alg_1(thread_idx,num_threads,N,bounds)
+            implicit none
+
+            integer,intent(in) :: thread_idx,num_threads,N
+            integer,intent(inout) :: bounds(1:2)
+
+            !* scratch
+            integer :: dx,all_bounds(1:2,1:num_threads),difference,thread
+
+            !* average width of loop
+            dx = int(floor(float(N)/float(num_threads)))
+
+            !* remaining elements for final thread
+            difference = N - dx*num_threads
+
+            if ((difference.gt.num_threads).or.(thread_idx.lt.0).or.(thread_idx.ge.num_threads)) then
+                call error_message("load_balance_alg_1","Check args to routine")
+            end if
+
+            all_bounds(1,1) = 1 
+            all_bounds(2,1) = all_bounds(1,1) + dx - 1
+            if (1.le.difference) then
+                all_bounds(2,1) = all_bounds(2,1) + 1
+            end if
+
+            do thread=2,num_threads
+                all_bounds(1,thread) = all_bounds(2,thread-1) + 1
+                all_bounds(2,thread) = all_bounds(1,thread) + dx - 1
+                if (thread.le.difference) then
+                    all_bounds(2,thread) = all_bounds(2,thread) + 1
+                end if 
+            end do
+            bounds(1:2) = all_bounds(1:2,thread_idx+1)
+        end subroutine load_balance_alg_1
 end module utility

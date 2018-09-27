@@ -28,9 +28,9 @@ module features
             !
             ! Arguments
             ! ---------
-            ! cell             : shape=(3,3)
-            ! atom_positions   : shape=(3,Natm)
-            ! grid_coordinates : shape=(3,Ngrid)
+            ! cell             : shape=(3,3),     units=cartesians
+            ! atom_positions   : shape=(3,Natm),  units=fractional coordinates
+            ! grid_coordinates : shape=(3,Ngrid), units=cartesians
             !
             ! Note
             ! ----
@@ -38,6 +38,7 @@ module features
             ! image
             !
             ! [1] PHYSICAL REVIEW B 87, 184115 (2013)
+            use omp_lib
 
             implicit none
 
@@ -51,6 +52,9 @@ module features
             !* scratch
             integer :: dim(1:2),natm,ngrid,ii,loop(1:2)
             real(8),allocatable :: neigh_images(:,:),polar(:,:)
+
+            !* openmp
+            integer :: thread_idx,num_threads
 
             !===============!
             !* arg parsing *!
@@ -66,6 +70,12 @@ module features
             !* number of  density points to calculate features for
             ngrid = dim(2)
 
+            !* check shape of output array (Nfeats,ngrid)
+            dim = shape(X)
+            if ((dim(1).ne.cardinality_bispectrum_type1(lmax,nmax)).or.(dim(2).ne.ngrid)) then
+                call error_message("calculate_bispectrum_type1","shape mismatch between output array and input args")
+            end if
+
             !* interaction cut off
             call bispect_param_type__set_rcut(bispect_param,rcut)
 
@@ -77,7 +87,7 @@ module features
             call config_type__set_local_positions(atom_positions)   
 
             !* cartesians of all relevant atom images 
-
+            
             !* list of relevant images
             call find_neighbouring_images(neigh_images)
 
@@ -99,8 +109,25 @@ module features
                     call features_bispectrum_type1(polar,X(:,ii)) 
                 end do
             else
-                write(*,*) "Not implemented"
-                call exit(0)
+                !$omp parallel num_threads(omp_get_max_threads()),&
+                !$omp& default(shared),&
+                !$omp& private(thread_idx,polar,ii,buffer_radial_g,buffer_spherical_p,buffer_polar_sc,loop)
+            
+                !* [0,num_threads-1]
+                thread_idx = omp_get_thread_num()
+                
+                num_threads = omp_get_max_threads()
+
+                !* evenly split workload
+                call load_balance_alg_1(thread_idx,num_threads,ngrid,loop)
+
+                do ii=loop(1),loop(2),1
+                    !* generate [[r,theta,phi] for atom neighbouring frid point ii]
+                    call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar)
+
+                    !* get type1 features
+                    call features_bispectrum_type1(polar,X(:,ii)) 
+                end do
             end if            
         end subroutine calculate_bispectrum_type1
 
@@ -119,7 +146,8 @@ module features
             !* scratch
             integer :: dim(1:2),cntr
             integer :: Nneigh,ll,nn,ii,mm
-            real(8) :: val_ln,reduce_array(1:2),tmp1,tmp2(1:2)
+            real(8) :: val_ln,reduce_array(1:2)
+            real(8) :: tmp1,tmp2(1:2),tmp3
 
             dim = shape(polar)
 
@@ -128,10 +156,13 @@ module features
 
             !* redundancy arrays specific to grid point
             call init_buffer_all_polar(polar)
-
+            
             cntr = 1
             do ll=0,bispect_param%lmax,1
                 do nn=1,bispect_param%nmax,1    
+                    ! reduce page thrashing later
+                    tmp3 = buffer_spherical_harm_const(0,ll)
+            
                     do mm=1,ll 
                         reduce_array = 0.0d0
                         
@@ -144,15 +175,14 @@ module features
                             reduce_array = reduce_array + tmp2
                         end do neighbour_loop
 
-                        val_ln = val_ln + spherical_harm_const(ll,mm)*sum(reduce_array**2)
+                        val_ln = val_ln + buffer_spherical_harm_const(mm,ll)*sum(reduce_array**2)
                     end do
                     
                     !* count -,+mm
                     val_ln = val_ln*2.0d0
-
+                    
                     !* m=0 contribution : cos(m phi)=1,sin(m phi)=0
-                    val_ln = val_ln + ddot(Nneigh,buffer_radial_g(:,nn),1,buffer_spherical_p(:,0,ll))**2 * &
-                    &spherical_harm_const(ll,0)
+                    val_ln = val_ln + ddot(Nneigh,buffer_radial_g(:,nn),1,buffer_spherical_p(:,0,ll),1)**2 * tmp3
 
                     x(cntr) = val_ln
                     cntr = cntr + 1
@@ -160,38 +190,6 @@ module features
             end do
         end subroutine features_bispectrum_type1
 
-        real(8) function spherical_harm_const(l,m)
-            ! l = [1,lmax]
-            ! m = [-lmax,lmax]
-            !
-            ! store in array array = [midx,lidx]
-            ! lidx = l, midx = m + lmax + 1
-            !
-            ! lidx = [1,lmax], midx=[1,2*lmax+1]
-        
-            implicit none
-            
-            !* args
-            integer,intent(in) :: l,m
-
-            !* scratch
-            integer :: midx
-
-            !* use array indices >= 1
-            midx = spherical_harm_const__sub1(m)
-
-            spherical_harm_const = buffer_spherical_harm_const(midx,l)
-        end function spherical_harm_const
-
-        integer function spherical_harm_const__sub1(m)
-            implicit none
-
-            !* args
-            integer,intent(in) :: m
-
-            !* map to interval [1,2*lmax+1]
-            spherical_harm_const__sub1 = m + bispect_param%lmax + 1
-        end function spherical_harm_const__sub1
 
         subroutine init_buffer_all_general()
             implicit none
@@ -205,19 +203,18 @@ module features
             implicit none
 
             !* scratch
-            integer :: ll,mm,midx
+            integer :: ll,mm
 
             if(allocated(buffer_spherical_harm_const)) then
                 deallocate(buffer_spherical_harm_const)
             end if
             
-            allocate(buffer_spherical_harm_const(1:bispect_param%lmax*2+1,bispect_param%lmax))
+            allocate(buffer_spherical_harm_const(0:bispect_param%lmax,0:bispect_param%lmax))
+            buffer_spherical_harm_const = 0.0d0            
 
             do ll=1,bispect_param%lmax,1
-                do mm=-ll,ll,1
-                    midx = spherical_harm_const__sub1(mm)
-
-                    buffer_spherical_harm_const(midx,ll) = spherical_harm_const__sub2(ll,mm)
+                do mm=0,ll
+                    buffer_spherical_harm_const(mm,ll) = spherical_harm_const__sub1(mm,ll)
                 end do
             end do
         end subroutine init_buffer_spherical_harm_const
@@ -317,7 +314,7 @@ module features
             call init_radial_g(polar)
         end subroutine init_buffer_all_polar
 
-        real(8) function spherical_harm_const__sub2(ll,mm)
+        real(8) function spherical_harm_const__sub1(mm,ll)
             implicit none
     
             !* args
@@ -329,8 +326,8 @@ module features
             dble_ll = dble(ll)
             dble_mm = dble(mm)
         
-            spherical_harm_const__sub2 = ((2.0d0*dble_ll+1.0d0)*factorial(ll-mm))/(12.5663706144d0*factorial(ll+mm))
-        end function spherical_harm_const__sub2
+            spherical_harm_const__sub1 = ((2.0d0*dble_ll+1.0d0)*factorial(ll-mm))/(12.5663706144d0*factorial(ll+mm))
+        end function spherical_harm_const__sub1
 
         integer recursive function factorial(x) result(res)
             implicit none

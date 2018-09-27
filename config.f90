@@ -55,7 +55,7 @@ module config
             type(bispect_param_type),intent(inout) :: type_instance
             integer,intent(in) :: lmax,nmax
 
-            if (lmax.le.0) then
+            if (lmax.lt.0) then
                 call error_message("bispect_param_type__set_ln","must give lmax>0")
             else if (nmax.le.0) then
                 call error_message("bispect_param_type__set_ln","must give nmax>0")
@@ -73,7 +73,7 @@ module config
 
             !* scratch
             integer :: dim(1:2),ncells,natm,ii,jj,nall
-
+            
             dim = shape(neigh_images)
             ncells = dim(2)
 
@@ -85,6 +85,7 @@ module config
 
             nall = natm*ncells
 
+            if(allocated(structure%all_positions)) deallocate(structure%all_positions)
             allocate(structure%all_positions(1:3,1:nall))
 
             do ii=1,ncells,1
@@ -97,7 +98,7 @@ module config
 
             !* cartesians
             call dgemm('n','n',3,nall,3,1.0d0,structure%cell,3,structure%all_positions,3,0.0d0,&
-            &structure%all_positions) 
+            &structure%all_positions,3) 
 
             structure%nall = nall
         end subroutine config_type__generate_ultracell
@@ -119,10 +120,17 @@ module config
             !* scratch
             integer :: dim(1:2)
 
+            if (allocated(structure%local_positions)) then
+                deallocate(structure%local_positions)
+            end if
+
             dim = shape(positions)
 
             allocate(structure%local_positions(dim(1),dim(2)))
             structure%local_positions = positions
+        
+            !* wrap positions back to local cell (0<= fractional coords <=1)
+            call config_type__wrap_atom_positions()
         end subroutine config_type__set_local_positions
     
         subroutine config_type__generate_neighbouring_polar(gridpoint,polar)
@@ -142,6 +150,9 @@ module config
             if(allocated(polar)) then
                 deallocate(polar)
             end if
+            if(.not.allocated(structure%all_positions)) then
+                call error_message("config_type__generate_neighbouring_polar","attribute all_positions not allocated")
+            end if
             rcut2 = bispect_param%rcut**2
 
             cntr = 0
@@ -151,7 +162,7 @@ module config
 
                 if (sum(dr_vec**2).le.rcut2) then
                     cntr = cntr + 1
-                    polar_buffer(1,cntr) = dnrm2(3,1,dr_vec)
+                    polar_buffer(1,cntr) = dnrm2(3,dr_vec,1)
                     polar_buffer(2,cntr) = dr_vec(3) / polar_buffer(1,cntr)
                     if (.not.ieee_is_finite(polar_buffer(2,cntr))) then 
                         !* r=0, use (phi,theta) = 0 in this case
@@ -166,4 +177,25 @@ module config
             allocate(polar(3,cntr))
             polar(:,:) = polar_buffer(:,1:cntr)
         end subroutine config_type__generate_neighbouring_polar
+
+        subroutine config_type__wrap_atom_positions()
+            ! wrap fractional coordinates of atoms to within [0,1]
+            implicit none
+
+            !* scratch
+            integer :: dim(1:2),ii,jj
+
+            structure%local_positions = structure%local_positions - floor(structure%local_positions)
+    
+            dim = shape(structure%local_positions)
+            do ii=1,dim(2)
+                do jj=1,3
+                    if ((structure%local_positions(jj,ii).le.0.0d0).or.&
+                    &(structure%local_positions(jj,ii).gt.1.0d0)) then
+                        !* sanity check
+                        call error_message("config_type__wrap_atom_positions","failed to wrap positions")
+                    end if
+                end do
+            end do
+        end subroutine config_type__wrap_atom_positions
 end module config
