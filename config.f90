@@ -174,8 +174,11 @@ module config
                     end if
                 end if 
             end do
-            allocate(polar(3,cntr))
-            polar(:,:) = polar_buffer(:,1:cntr)
+
+            if (cntr.gt.0) then
+                allocate(polar(3,cntr))
+                polar(:,:) = polar_buffer(:,1:cntr)
+            end if
         end subroutine config_type__generate_neighbouring_polar
 
         subroutine config_type__wrap_atom_positions()
