@@ -166,7 +166,7 @@ module config
             do ii=1,structure%nall,1
                 !* cartesian displacement
                 dr_vec = structure%all_positions(:,ii) - gridpoint
-
+                
                 if (sum(dr_vec**2).le.rcut2) then
                     cntr = cntr + 1
                     polar_buffer(1,cntr) = dnrm2(3,dr_vec,1)

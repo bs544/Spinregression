@@ -56,7 +56,7 @@ module features
 
             !* openmp
             integer :: thread_idx,num_threads
-
+            
             !===============!
             !* arg parsing *!
             !===============!
@@ -91,7 +91,7 @@ module features
             
             !* list of relevant images
             call find_neighbouring_images(neigh_images)
-
+            
             !* generate cartesians of all relevant atoms
             call config_type__generate_ultracell(neigh_images)
        
@@ -105,9 +105,16 @@ module features
                 do ii=loop(1),loop(2),1
                     !* generate [[r,theta,phi] for atom neighbouring frid point ii]
                     call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar)
-
+!if (ii.eq.1) then
+!write(*,*) ''
+!write(*,*) ''
+!write(*,*) 'r'
+!write(*,*) polar(1,1:5)
+!write(*,*) 'theta'
+!write(*,*) polar(2,1:5)
+!end if                    
                     if(.not.allocated(polar)) then
-                        !* do atoms within local approximation
+                        !* no atoms within local approximation
                         X(:,ii) = 0.0d0
                     else
                         !* get type1 features
@@ -197,8 +204,8 @@ module features
                     val_ln = val_ln*2.0d0
                     
                     !* m=0 contribution : cos(m phi)=1,sin(m phi)=0
-                    val_ln = val_ln + ddot(Nneigh,buffer_radial_g(:,nn),1,buffer_spherical_p(:,0,ll),1)**2 * tmp3
-                    
+                    val_ln = val_ln + ddot_wrapper(buffer_radial_g(:,nn),buffer_spherical_p(:,0,ll))**2 * tmp3
+
                     x(cntr) = val_ln
                     cntr = cntr + 1
                 end do
@@ -264,6 +271,7 @@ module features
             !* scratch
             integer :: dim(1:2)
             integer :: Nneigh,mm,ll,ii
+            real(8),allocatable :: cos_vals(:)
 
             !* number of neighbouring atoms
             dim = shape(polar)
@@ -274,6 +282,12 @@ module features
             end if
             allocate(buffer_spherical_p(1:Nneigh,0:bispect_param%lmax,0:bispect_param%lmax))
 
+            !* cos(theta_i) for all i needs computing only once
+            allocate(cos_vals(1:Nneigh))
+            do ii=1,Nneigh
+                cos_vals(ii) = cos(polar(2,ii))
+            end do
+
             !*              m       l
             !* [1,Nneigh][0,lmax][0,lmax]
             buffer_spherical_p = 0.0d0
@@ -281,7 +295,7 @@ module features
             do ll=0,bispect_param%lmax,1
                 do mm=0,ll,1
                     do ii=1,Nneigh,1
-                        buffer_spherical_p(ii,mm,ll) = plgndr(ll,mm,cos(polar(2,ii)))
+                        buffer_spherical_p(ii,mm,ll) = plgndr(ll,mm,cos_vals(ii))
                     end do
                 end do
             end do
@@ -427,4 +441,25 @@ module features
             !* cmopute W = S^{-1/2}
             call sqrt_of_matrix_inverse(buffer_radial_overlap_s,buffer_radial_overlap_w)
         end subroutine init_buffer_radial_basis_overlap
+
+        real(8) function ddot_wrapper(arr1,arr2)
+            implicit none
+
+            real(8),intent(in) :: arr1(:),arr2(:)
+            
+            integer :: dim1(1:1),dim2(1:1)
+            real(8) :: res2
+
+            dim1 = shape(arr1)
+            dim2 = shape(arr2)
+
+            if (dim1(1).ne.dim2(1)) then
+                call error_message("ddot_wrapper","shapes not consistent")
+            end if
+
+            ! CANNOT SLICE arrays for ddot with blas, need to pass slice 
+            ! through arg list
+            res2 = ddot(dim1(1),arr1,1,arr2,1)
+            ddot_wrapper = res2
+        end function ddot_wrapper
 end module features
