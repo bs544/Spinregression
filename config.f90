@@ -33,7 +33,7 @@ module config
     real(8),allocatable :: buffer_radial_phi_Nalpha(:)      ! normalizing constant for alpha       
     real(8),allocatable :: buffer_radial_g(:,:)             ! radial components for given grid point
     real(8),allocatable :: buffer_spherical_p(:,:,:)        ! associated legendre polynomial
-    real(8),allocatable :: buffer_polar_sc(:,:)             ! [cos(theta),sin(theta) for neighbour for grid point]
+    real(8),allocatable :: buffer_polar_sc(:,:,:)           ! [cos(theta),sin(theta) for neighbour for grid point]
     real(8),allocatable :: buffer_radial_overlap_s(:,:)     ! overlap matrix of radial bases
     real(8),allocatable :: buffer_radial_overlap_w(:,:)     ! linear combination coefficients from basis overlap
 

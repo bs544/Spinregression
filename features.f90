@@ -21,7 +21,7 @@ module features
             cardinality_bispectrum_type1 = (lmax+1)*nmax
         end function cardinality_bispectrum_type1
 
-        subroutine calculate_bispectrum_type1(cell,atom_positions,grid_coordinates,rcut,parallel,&
+        subroutine calculate_powerspectrum_type1(cell,atom_positions,grid_coordinates,rcut,parallel,&
         &lmax,nmax,X)
             ! Compute bispectrum features as in [1]
             !
@@ -105,14 +105,7 @@ module features
                 do ii=loop(1),loop(2),1
                     !* generate [[r,theta,phi] for atom neighbouring frid point ii]
                     call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar)
-!if (ii.eq.1) then
-!write(*,*) ''
-!write(*,*) ''
-!write(*,*) 'r'
-!write(*,*) polar(1,1:5)
-!write(*,*) 'theta'
-!write(*,*) polar(2,1:5)
-!end if                    
+                    
                     if(.not.allocated(polar)) then
                         !* no atoms within local approximation
                         X(:,ii) = 0.0d0
@@ -149,7 +142,7 @@ module features
                 
                 !$omp end parallel
             end if            
-        end subroutine calculate_bispectrum_type1
+        end subroutine calculate_powerspectrum_type1
 
         subroutine features_bispectrum_type1(polar,x)
             ! concacenation order:
@@ -172,7 +165,7 @@ module features
             dim = shape(polar)
 
             !* number of neighbouring atoms to grid point
-            Nneigh = dim(1)
+            Nneigh = dim(2)
 
             !* redundancy arrays specific to grid point
             call init_buffer_all_polar(polar)
@@ -187,12 +180,12 @@ module features
             
                     do mm=1,ll 
                         reduce_array = 0.0d0
-                        
+
                         neighbour_loop : do ii=1,Nneigh,1
                             tmp1 = buffer_radial_g(ii,nn)*buffer_spherical_p(ii,mm,ll)
 
-                            tmp2(1) = tmp1*buffer_polar_sc(1,ii)
-                            tmp2(2) = tmp1*buffer_polar_sc(2,ii)
+                            tmp2(1) = tmp1*buffer_polar_sc(1,ii,mm)    ! cos(m phi)
+                            tmp2(2) = tmp1*buffer_polar_sc(2,ii,mm)    ! sin(m phi)
 
                             reduce_array = reduce_array + tmp2
                         end do neighbour_loop
@@ -308,7 +301,8 @@ module features
             real(8),intent(in) :: polar(:,:)
 
             !* scratch
-            integer :: dim(1:2),Nneigh,ii
+            integer :: dim(1:2),Nneigh,ii,mm
+            real(8) :: dble_mm
 
             dim = shape(polar)
 
@@ -317,13 +311,18 @@ module features
             if(allocated(buffer_polar_sc)) then
                 deallocate(buffer_polar_sc)
             end if
-            allocate(buffer_polar_sc(1:2,1:Nneigh))
-            
-            do ii=1,Nneigh,1
-                !* (cos(phi),sin(phi))
-                buffer_polar_sc(1,ii) = cos(polar(3,ii))
-                buffer_polar_sc(2,ii) = sin(polar(3,ii))
-            end do
+            if(bispect_param%lmax.ge.1) then
+                allocate(buffer_polar_sc(1:2,1:Nneigh,1:bispect_param%lmax))
+               
+                do mm=1,bispect_param%lmax
+                    dble_mm = dble(mm)
+                    do ii=1,Nneigh,1
+                        !* (cos(m phi),sin(m phi))
+                        buffer_polar_sc(1,ii,mm) = cos(polar(3,ii)*dble_mm)
+                        buffer_polar_sc(2,ii,mm) = sin(polar(3,ii)*dble_mm)
+                    end do
+                end do
+            end if
         end subroutine init_buffer_polar_sc
 
         subroutine init_buffer_all_polar(polar)
@@ -355,7 +354,7 @@ module features
             dble_ll = dble(ll)
             dble_mm = dble(mm)
         
-            spherical_harm_const__sub1 = ((2.0d0*dble_ll+1.0d0)*factorial(ll-mm))/(12.5663706144d0*factorial(ll+mm))
+            spherical_harm_const__sub1 = ((2.0d0*dble_ll+1.0d0)*dble(factorial(ll-mm)))/(12.5663706144d0*dble(factorial(ll+mm)))
         end function spherical_harm_const__sub1
 
         integer recursive function factorial(x) result(res)

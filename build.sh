@@ -1,6 +1,6 @@
 #!/bin/bash
 
-modulename="bispectrum_f90api"
+modulename="powerspectrum_f90api"
 
 f1="io"
 f2="config"
@@ -22,7 +22,7 @@ do
     gfortran -c $file".f90" $FFLAGS
 done
 
-functions_to_expose="calculate_bispectrum_type1"
+functions_to_expose="calculate_powerspectrum_type1"
 functions_to_expose+=" cardinality_bispectrum_type1"
 modules_to_expose="features.f90"
 
