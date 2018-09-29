@@ -258,4 +258,35 @@ module spherical_harmonics
                 end do
             end do
         end subroutine check_plgndr_s
+
+        real(8) function ql_bruteforce(f_radial,polar,l)
+            ! compute ql = sum_{m=-l}^{m=l} |c_nlm|^2 where
+            ! c_nlm = sum_i f_radial(ii) * Y_lm(ii)
+            implicit none
+
+            integer,intent(in) :: l
+            real(8),intent(in) :: f_radial(:),polar(:,:)
+
+            integer :: dim(1:1),ii,mm
+            complex(8),allocatable :: c_nlm(:)
+            real(8) :: theta,phi
+            real(8),allocatable :: qml(:)
+
+            dim = shape(f_radial)
+            allocate(c_nlm(-l:l))
+            allocate(qml(-l:l))
+
+
+            do mm=-l,l
+                c_nlm(mm) = complex(0.0d0,0.0d0)
+                do ii=1,dim(1)
+                    theta = polar(2,ii) ! inclination
+                    phi   = polar(3,ii) ! azimth
+
+                    c_nlm(mm) = c_nlm(mm) + f_radial(ii)*sph_harm(mm,l,theta,phi)
+                end do
+                qml(mm) = abs(c_nlm(mm))**2
+            end do                
+            ql_bruteforce = sum(qml)
+        end function ql_bruteforce
 end module spherical_harmonics 

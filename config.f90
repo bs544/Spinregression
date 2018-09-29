@@ -179,7 +179,7 @@ module config
                         polar_buffer(3,cntr) = 0.0d0
                     else     
                         polar_buffer(2,cntr) = acos(polar_buffer(2,cntr))   ! inclination angle (theta)
-                        polar_buffer(3,cntr) = atan(dr_vec(2)/dr_vec(1))    ! azimuth angle     (phi)
+                        polar_buffer(3,cntr) = atan2(dr_vec(2),dr_vec(1))   ! azimuth angle     ( -pi <= phi <= pi )
                     end if
                 end if 
             end do

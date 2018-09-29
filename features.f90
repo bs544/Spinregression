@@ -56,7 +56,8 @@ module features
 
             !* openmp
             integer :: thread_idx,num_threads
-            
+
+
             !===============!
             !* arg parsing *!
             !===============!
@@ -105,7 +106,7 @@ module features
                 do ii=loop(1),loop(2),1
                     !* generate [[r,theta,phi] for atom neighbouring frid point ii]
                     call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar)
-                    
+
                     if(.not.allocated(polar)) then
                         !* no atoms within local approximation
                         X(:,ii) = 0.0d0
@@ -149,7 +150,6 @@ module features
             !
             ! for l in [0,lmax]:
             !     for n in [1,nmax]:
-
             implicit none
 
             !* args
@@ -254,7 +254,7 @@ module features
         subroutine init_buffer_spherical_p(polar)
             ! calculate associated legendre polynomail for cos(theta_j) for all
             ! atoms j
-            use spherical_harmonics, only : plgndr
+            use spherical_harmonics, only : plgndr_s
 
             implicit none
 
@@ -288,7 +288,7 @@ module features
             do ll=0,bispect_param%lmax,1
                 do mm=0,ll,1
                     do ii=1,Nneigh,1
-                        buffer_spherical_p(ii,mm,ll) = plgndr(ll,mm,cos_vals(ii))
+                        buffer_spherical_p(ii,mm,ll) = plgndr_s(ll,mm,cos_vals(ii))
                     end do
                 end do
             end do
