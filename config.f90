@@ -141,6 +141,8 @@ module config
         end subroutine config_type__set_local_positions
     
         subroutine config_type__generate_neighbouring_polar(gridpoint,polar)
+            !* Y_lm(theta,phi) = k_lm P_m(cos(theta)) * exp(i phi)
+
             use, intrinsic :: ieee_arithmetic            
 
             implicit none
@@ -176,8 +178,8 @@ module config
                         polar_buffer(2,cntr) = 0.0d0
                         polar_buffer(3,cntr) = 0.0d0
                     else     
-                        polar_buffer(2,cntr) = acos(polar_buffer(2,cntr))               
-                        polar_buffer(3,cntr) = atan(dr_vec(2)/dr_vec(1))
+                        polar_buffer(2,cntr) = acos(polar_buffer(2,cntr))   ! inclination angle (theta)
+                        polar_buffer(3,cntr) = atan(dr_vec(2)/dr_vec(1))    ! azimuth angle     (phi)
                     end if
                 end if 
             end do
