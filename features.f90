@@ -118,7 +118,7 @@ module features
             else
                 !$omp parallel num_threads(omp_get_max_threads()),&
                 !$omp& default(shared),&
-                !$omp& private(thread_idx,polar,ii,buffer_radial_g,buffer_spherical_p,buffer_polar_sc,loop)
+                !$omp& private(thread_idx,polar,ii,loop,num_threads)
             
                 !* [0,num_threads-1]
                 thread_idx = omp_get_thread_num()
@@ -127,7 +127,7 @@ module features
 
                 !* evenly split workload
                 call load_balance_alg_1(thread_idx,num_threads,ngrid,loop)
-
+                
                 do ii=loop(1),loop(2),1
                     !* generate [[r,theta,phi] for atom neighbouring frid point ii]
                     call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar)

@@ -37,6 +37,11 @@ module config
     real(8),allocatable :: buffer_radial_overlap_s(:,:)     ! overlap matrix of radial bases
     real(8),allocatable :: buffer_radial_overlap_w(:,:)     ! linear combination coefficients from basis overlap
 
+    !* omp directives for private globally scoped variables
+    !$omp threadprivate(buffer_radial_g)
+    !$omp threadprivate(buffer_spherical_p)
+    !$omp threadprivate(buffer_polar_sc)
+
     contains
         !* methods
         
