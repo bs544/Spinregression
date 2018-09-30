@@ -13,7 +13,7 @@ class MLPGaussianRegressor():
     def __init__(self, args, sizes, model_scope):
 
         self.input_data = tf.placeholder(tf.float32, [None, sizes[0]])
-        self.target_data = tf.placeholder(tf.float32, [None, sizes[0]])
+        self.target_data = tf.placeholder(tf.float32, [None, 1])
 
         with tf.variable_scope(model_scope+'learning_rate'):
             self.lr = tf.Variable(args.learning_rate, trainable=False, name='learning_rate')
