@@ -35,16 +35,13 @@ class format_data():
             
             # 0 mean, 1 standard deviation
             self.xs_standardized = self.get_xs_standardized(self.xs)
-
-            if len(self.xs_standardized.shape)==1:
-                # need (N,1) rather than (N,)
-                self.xs_standardized = np.reshape(self.xs_standardized,(-1,1))
         if y is not None:
             self.ys = y
             self.target_mean = np.mean(self.ys,0)
             self.target_std = np.std(self.ys,0)
             
             if len(self.ys.shape)==1:
+                # need (N,1) rather than (N,)
                 self.ys = np.reshape(self.ys,(-1,1))
 
     def set_batch_size(self,batch_size):
@@ -60,8 +57,12 @@ class format_data():
         return standardized input
         """
         if self.input_mean is None or self.input_std is None: raise GeneralError("Must set x data before making predictions")
-        return (xs - self.input_mean)/self.input_std
-
+        
+        res = (xs - self.input_mean)/self.input_std
+        if len(res.shape)==1:
+            # need (N,1) rather than (N,)
+            res = np.reshape(res,(-1,1))
+        return res
 
     def next_batch(self):
         """

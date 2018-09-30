@@ -7,7 +7,7 @@ import tensorflow as tf
 from features.heuristic_model import MLPGaussianRegressor
 
 class regressor():
-    def __init__(self,method="heuristic",layers=[1,10],Nensemble=5,maxiter=5e3,activation="logistic",\
+    def __init__(self,method="heuristic",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
     batch_size=1.0,method_args={}):
         """
         Interface to regression using heuristic ensembles or VI Bayes. In both
@@ -163,12 +163,12 @@ class regressor():
 
         for model in self.session["ensemble"]:
             feed = {model.input_data: xs}
-            mean,var = sess.run([model.mean,model.var],feed)
+            mean,var = self.session["tf_session"].run([model.mean,model.var],feed)
             en_mean += mean
             en_var += var + mean**2
         
-        en_mean /= len(ensemble)
-        en_var = en_var/len(ensemble) - en_mean**2
+        en_mean /= len(self.session["ensemble"])
+        en_var = en_var/len(self.session["ensemble"]) - en_mean**2
         return en_mean,en_var
 
     def _fit_bayes(self):
