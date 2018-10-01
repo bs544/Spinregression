@@ -232,7 +232,7 @@ class regressor():
         self._init_MLPGaussianRegressor()
         self.session["tf_session"] = tf.Session()
         self.session["tf_session"].run(tf.global_variables_initializer())
-        self.session["saver"] = tf.train.import_meta_graph('{}/{}.meta'.format(prefix,prefix)) 
+        self.session["saver"] = tf.train.Saver(tf.global_variables())
         self.session["saver"].restore(self.session["tf_session"],"{}/{}".format(prefix,prefix))
 
     def _load_bayes(self,prefix):
