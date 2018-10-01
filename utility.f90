@@ -135,7 +135,8 @@ module utility
 
             !* scratch
             integer :: dim(1:2),ii,jj
-            real(8),allocatable :: tmp(:),tmp2(:),atol
+            real(8),allocatable :: tmp(:),tmp2(:)
+            real(8) :: atol
             logical :: res=.true.
             
 
