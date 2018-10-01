@@ -4,6 +4,8 @@ Interface to regression and prediction
 from features.util import format_data,toy_argparse
 import numpy as np
 import tensorflow as tf
+import pickle
+import os
 from features.heuristic_model import MLPGaussianRegressor
 
 class regressor():
@@ -125,37 +127,73 @@ class regressor():
         else:
             mean,var = self._predict_bayes(xs_test)
 
-        return mean,var
+        return mean.flatten(),var.flatten()
 
-    def _fit_heuristic(self):
+    def save(self,prefix="model"):
+        """
+        save everything necessary to make predictions later
+        """
+        if not os.path.isdir(prefix):
+            os.mkdir('./{}'.format(prefix))
+
+        if self.method == "heuristic":
+            self._save_heuristic(prefix)
+        elif self.method == "bayes":
+            self._save_bayes(prefix)
+
+    def load(self,prefix="model"):
+        """
+        load prefiously saved model
+        """
+        if not os.path.isdir(prefix): raise GeneralError("Cannot find save directory {}".format(prefix))
+        with open('{}/{}.pckl'.format(prefix,prefix),'rb') as f:
+            attributes = pickle.load(f)
+        f.close() 
+        for _attr in attributes:
+            # load all non tf attributes
+            setattr(self,_attr,attributes[_attr])
+
+        if self.method == "heuristic":
+            self._load_heuristic(prefix)
+        elif self.method == "bayes":
+            self._load_bayes(prefix)
+    
+    def _init_MLPGaussianRegressor(self):
         combine_args = self.method_args
         combine_args.update({"activation":getattr(self,"activation")})
 
         # a class with key,value as attribute name,value
         args = toy_argparse(combine_args)
 
-        ensemble = [MLPGaussianRegressor(args, [self.D]+list(self.layers)+[2], 'model'+str(i)) for i in range(self.Nensemble)] 
-        #ensemble = [MLPGaussianRegressor(args, [1,10,10,2], 'model'+str(i)) for i in range(self.Nensemble)] 
-        self.session = tf.Session()
-        self.session.run(tf.initialize_all_variables())
+        self.session["ensemble"] = [MLPGaussianRegressor(args, \
+                [self.D]+list(self.layers)+[2], 'model'+str(i)) for i in range(self.Nensemble)] 
 
-        for model in ensemble:
-            self.session.run(tf.assign(model.output_mean,self.train_data.target_mean))
-            self.session.run(tf.assign(model.output_std,self.train_data.target_std))
+    def _fit_heuristic(self):
+        self.session = {"tf_session":None,"saver":None,"ensemble":None}
+        
+        # define tf variables
+        self._init_MLPGaussianRegressor()
+
+        self.session["tf_session"] = tf.Session()
+        self.session["tf_session"].run(tf.global_variables_initializer())
+        self.session["saver"] = tf.train.Saver(tf.global_variables())
+
+        for model in self.session["ensemble"]:
+            self.session["tf_session"].run(tf.assign(model.output_mean,self.train_data.target_mean))
+            self.session["tf_session"].run(tf.assign(model.output_std,self.train_data.target_std))
 
         for itr in range(self.maxiter):
-            for model in ensemble:
+            for model in self.session["ensemble"]:
                 # can train on distinct mini batches for each ensemble
                 x,y = self.train_data.next_batch()
 
                 feed = {model.input_data: x, model.target_data: y}
-                _, nll, m, v = self.session.run([model.train_op, model.nll, model.mean, model.var], feed)
+                _, nll, m, v = self.session["tf_session"].run([model.train_op, model.nll, model.mean, model.var], feed)
 
                 if np.mod(itr,100)==0:
-                    self.session.run(tf.assign(model.lr,\
+                    self.session["tf_session"].run(tf.assign(model.lr,\
                             self.method_args["learning_rate"]*(self.method_args["decay_rate"]**(itr/100))))
-    
-        self.session = {"tf_session":self.session,"ensemble":ensemble}
+
 
     def _predict_heuristic(self,xs):
         en_mean = 0.0
@@ -176,6 +214,29 @@ class regressor():
     def _predict_bayes(self,xs):
         raise NotImplementedError
         return None,None
+
+    def _save_heuristic(self,prefix):
+        attributes = {}
+        for _attr in [_a for _a in self.__dict__ if _a not in ["session"]]:
+            attributes.update({_attr:getattr(self,_attr)})
+        with open("./{}/{}.pckl".format(prefix,prefix),"wb") as f:
+            pickle.dump(attributes,f)
+        f.close()            
+        self.session["saver"].save(self.session["tf_session"],"./{}/{}".format(prefix,prefix))
+
+    def _save_bayes(self,prefix):
+        raise NotImplementedError
+
+    def _load_heuristic(self,prefix):
+        self.session = {"tf_session":None,"ensemble":None,"saver":None}
+        self._init_MLPGaussianRegressor()
+        self.session["tf_session"] = tf.Session()
+        self.session["tf_session"].run(tf.global_variables_initializer())
+        self.session["saver"] = tf.train.import_meta_graph('{}/{}.meta'.format(prefix,prefix)) 
+        self.session["saver"].restore(self.session["tf_session"],"{}/{}".format(prefix,prefix))
+
+    def _load_bayes(self,prefix):
+        raise NotImplementedError
 
 class GeneralError(Exception):
     pass

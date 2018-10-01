@@ -38,9 +38,7 @@ class MLPGaussianRegressor():
                 activation_func = tf.nn.reul
             elif args.activation=="tanh":
                 activation_func = tf.nn.tanh
-
-            #x = activation_func(tf.add(tf.matmul(x, self.weights[i]), self.biases[i]))
-            x = tf.nn.relu(tf.add(tf.matmul(x, self.weights[i]), self.biases[i]))
+            x = activation_func(tf.add(tf.matmul(x, self.weights[i]), self.biases[i]))
 
         self.output = tf.add(tf.matmul(x, self.weights[-1]), self.biases[-1])
 
@@ -75,10 +73,6 @@ class MLPGaussianRegressor():
         self.nll_at = gaussian_nll(mean_at, var_at, self.target_data)
 
         tvars = tf.trainable_variables()
-
-        for v in tvars:
-            print (v.name)
-            print (v.get_shape())
 
         self.gradients = tf.gradients(args.alpha * self.nll + (1 - args.alpha) * self.nll_at, tvars)
 
