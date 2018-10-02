@@ -7,6 +7,10 @@ import tensorflow as tf
 import pickle
 import os
 from features.heuristic_model import MLPGaussianRegressor
+from features.bayes import vi_bayes
+from edward import KLqp
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 class regressor():
     def __init__(self,method="heuristic",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
@@ -113,11 +117,18 @@ class regressor():
         elif self.method == "vi_bayes":
             self._fit_bayes()
 
-    def predict(self,X):
+    def predict(self,X,Nsample=None):
         """
         Make predictions. For VI Bayes methods, can improve predictive
         uncertainty by increasing number of samples drawn from posterior 
         predictive distribution - see method : set_Nensemble()
+
+        Arguments
+        ---------
+        Nsample : int
+            For bayes method. If given, the number of samples drawn from 
+            approximate posterior distribution. Otherwise, self.Nensemble 
+            samples are drawn
         """
         # use shift and scaling from training data
         xs_test = self.train_data.get_xs_standardized(X)
@@ -125,7 +136,10 @@ class regressor():
         if self.method == "heuristic":
             mean,var = self._predict_heuristic(xs_test)
         else:
-            mean,var = self._predict_bayes(xs_test)
+            # numer of samples to draw from approx. posterior
+            if Nsample is None: Nsample = self.Nensemble
+
+            mean,var = self._predict_bayes(xs_test,Nsample)
 
         return mean.flatten(),var.flatten()
 
@@ -209,11 +223,26 @@ class regressor():
         en_var = en_var/len(self.session["ensemble"]) - en_mean**2
         return en_mean,en_var
 
+    def _init_bayes(self):
+        combine_args = self.method_args
+        combine_args.update({"activation":getattr(self,"activation")})
+        args = toy_argparse(combine_args)
+        
+        self.session["bayes_net"] = vi_bayes(args=args,layers=[self.D]+list(self.layers)) 
+
     def _fit_bayes(self):
-        raise NotImplementedError
-    def _predict_bayes(self,xs):
-        raise NotImplementedError
-        return None,None
+        self.session = {"tf_session":None,"saver":None,"bayes_net":None}
+
+        # initialise tf variables
+        self._init_bayes() 
+
+        self.session["bayes_net"].fit(X=self.train_data.xs_standardized,y=self.train_data.ys)
+
+
+    def _predict_bayes(self,xs,Nsample):
+        y_pred,y_std = self.session["bayes_net"].predict(xs,Nsample)
+
+        return y_pred,y_std
 
     def _save_heuristic(self,prefix):
         attributes = {}

@@ -26,6 +26,7 @@ functions_to_expose="calculate_powerspectrum_type1"
 functions_to_expose+=" cardinality_bispectrum_type1"
 modules_to_expose="features.f90"
 
+# remove this line on Cottrell
 export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libgfortran.so.3
 
 f90wrap -m $modulename $modules_to_expose -k kind_map -S 12 --only $functions_to_expose
