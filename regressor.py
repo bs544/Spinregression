@@ -14,7 +14,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 class regressor():
     def __init__(self,method="heuristic",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
-    batch_size=1.0,method_args={}):
+    batch_size=1.0,dtype=tf.float64,method_args={}):
         """
         Interface to regression using heuristic ensembles or VI Bayes. In both
         cases, uncertainties are made by an ensemble of nets or repeated 
@@ -37,6 +37,7 @@ class regressor():
         self.set_method_args(method_args)
         self.set_activation(activation)
         self.set_batch_size(batch_size)
+        self.set_dtype(dtype)
 
     def set_method(self,method):
         """
@@ -98,6 +99,12 @@ class regressor():
         if not isinstance(batch_size,(float,np.float,int,np.int)): raise GeneralError("invalid batch size {}".format(batch_size))
         self.batch_size = batch_size
 
+    def set_dtype(self,dtype):
+        """
+        Set dtype for tf
+        """
+        self.dtype = dtype
+
     def fit(self,X,y):
         """
         Perform chosen regression on given data
@@ -115,7 +122,8 @@ class regressor():
         if self.method == "heuristic":
             self._fit_heuristic()
         elif self.method == "vi_bayes":
-            self._fit_bayes()
+            rmse = self._fit_bayes()
+        return rmse
 
     def predict(self,X,Nsample=None):
         """
@@ -225,7 +233,8 @@ class regressor():
 
     def _init_bayes(self):
         combine_args = self.method_args
-        combine_args.update({"activation":getattr(self,"activation")})
+        for _attr in ["activation","dtype"]:
+            combine_args.update({_attr:getattr(self,_attr)})
         args = toy_argparse(combine_args)
         
         self.session["bayes_net"] = vi_bayes(args=args,layers=[self.D]+list(self.layers)) 
@@ -236,7 +245,8 @@ class regressor():
         # initialise tf variables
         self._init_bayes() 
 
-        self.session["bayes_net"].fit(X=self.train_data.xs_standardized,y=self.train_data.ys)
+        rmse = self.session["bayes_net"].fit(X=self.train_data.xs_standardized,y=self.train_data.ys)
+        return rmse
 
 
     def _predict_bayes(self,xs,Nsample):
