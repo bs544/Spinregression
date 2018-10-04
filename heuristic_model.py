@@ -11,7 +11,7 @@ import numpy as np
 class MLPGaussianRegressor():
 
     def __init__(self, args, sizes, model_scope):
-
+        
         self.input_data = tf.placeholder(tf.float32, [None, sizes[0]])
         self.target_data = tf.placeholder(tf.float32, [None, 1])
 
@@ -109,7 +109,13 @@ class MLPDropoutGaussianRegressor():
 
         x = self.input_data
         for i in range(0, len(sizes)-2):
-            x = tf.nn.relu(tf.nn.xw_plus_b(x, self.weights[i], self.biases[i]))
+            if args.activation=="logistic":
+                activation_func = tf.nn.sigmoid
+            elif args.activation=="relu":
+                activation_func = tf.nn.reul
+            elif args.activation=="tanh":
+                activation_func = tf.nn.tanh
+            x = activation_func(tf.nn.xw_plus_b(x, self.weights[i], self.biases[i]))
             x = tf.nn.dropout(x, self.dr, noise_shape=[1, sizes[i+1]], name='dropout_layer'+str(i))
 
         self.output = tf.add(tf.matmul(x, self.weights[-1]), self.biases[-1])
@@ -150,9 +156,6 @@ class MLPDropoutGaussianRegressor():
 
         tvars = tf.trainable_variables()
 
-        for v in tvars:
-            print (v.name)
-            print (v.get_shape())
 
         self.gradients = tf.gradients(args.alpha * self.nll + (1 - args.alpha) * self.nll_at, tvars)
 

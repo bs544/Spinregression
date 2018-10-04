@@ -6,14 +6,15 @@ import numpy as np
 import tensorflow as tf
 import pickle
 import os
-from features.heuristic_model import MLPGaussianRegressor
+from features.heuristic_model import MLPGaussianRegressor,MLPDropoutGaussianRegressor
 from features.bayes import vi_bayes
 from edward import KLqp
+from sklearn.metrics import mean_squared_error as mse
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 class regressor():
-    def __init__(self,method="heuristic",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
+    def __init__(self,method="nonbayes",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
     batch_size=1.0,dtype=tf.float64,method_args={}):
         """
         Interface to regression using heuristic ensembles or VI Bayes. In both
@@ -28,7 +29,7 @@ class regressor():
         (VI bayes) : arXiv:1610.09787, Edward: A library for probabilistic 
         modeling, inference, and criticism
         """
-        self.supp_methods = ["heuristic","vi_bayes"]
+        self.supp_methods = ["nonbayes","nonbayes_dropout","vi_bayes"]
         
         self.set_method(method)
         self.set_layers(layers)
@@ -44,7 +45,7 @@ class regressor():
         Set type of method to use
         """
         if method.lower() not in self.supp_methods: raise GeneralError("method {} not in {}".format(method,self.supp_methods))
-        self.method = method
+        self.method = method.lower()
     
     def set_layers(self,layers):
         """
@@ -71,7 +72,8 @@ class regressor():
         """
         set method specific arguments
         """
-        default_values = {"heuristic":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0},\
+        default_values = {"nonbayes":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0},\
+                          "nonbayes_dropout":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0},\
                           "vi_bayes":{}}
 
         if any([_arg not in default_values[self.method].keys() for _arg in method_args.keys()]):
@@ -119,8 +121,8 @@ class regressor():
         # feature dimensionality
         self.D = self.train_data.xs_standardized.shape[1]
 
-        if self.method == "heuristic":
-            self._fit_heuristic()
+        if self.method in  ["nonbayes","nonbayes_dropout"]:
+            rmse = self._fit_nonbayes()
         elif self.method == "vi_bayes":
             rmse = self._fit_bayes()
         return rmse
@@ -141,15 +143,16 @@ class regressor():
         # use shift and scaling from training data
         xs_test = self.train_data.get_xs_standardized(X)
 
-        if self.method == "heuristic":
-            mean,var = self._predict_heuristic(xs_test)
-        else:
+        if self.method in ["nonbayes","nonbayes_dropout"]:
+            mean,var = self._predict_nonbayes(xs_test)
+        elif self.method == "bayes":
             # numer of samples to draw from approx. posterior
             if Nsample is None: Nsample = self.Nensemble
 
             mean,var = self._predict_bayes(xs_test,Nsample)
+        else: raise NotImplementedError
 
-        return mean.flatten(),var.flatten()
+        return mean.flatten(),np.sqrt(var).flatten()
 
     def save(self,prefix="model"):
         """
@@ -158,8 +161,8 @@ class regressor():
         if not os.path.isdir(prefix):
             os.mkdir('./{}'.format(prefix))
 
-        if self.method == "heuristic":
-            self._save_heuristic(prefix)
+        if self.method in ["nonbayes","nonbayes_dropout"]:
+            self._save_nonbayes(prefix)
         elif self.method == "bayes":
             self._save_bayes(prefix)
 
@@ -175,8 +178,8 @@ class regressor():
             # load all non tf attributes
             setattr(self,_attr,attributes[_attr])
 
-        if self.method == "heuristic":
-            self._load_heuristic(prefix)
+        if self.method in ["nonbayes","nonbayes_dropout"]:
+            self._load_nonbayes(prefix)
         elif self.method == "bayes":
             self._load_bayes(prefix)
     
@@ -187,10 +190,15 @@ class regressor():
         # a class with key,value as attribute name,value
         args = toy_argparse(combine_args)
 
-        self.session["ensemble"] = [MLPGaussianRegressor(args, \
-                [self.D]+list(self.layers)+[2], 'model'+str(i)) for i in range(self.Nensemble)] 
+        if self.method == "nonbayes":
+            self.session["ensemble"] = [MLPGaussianRegressor(args, \
+                    [self.D]+list(self.layers)+[2], 'model'+str(i)) for i in range(self.Nensemble)] 
+        elif self.method == "nonbayes_dropout":
+            self.session["ensemble"] = [MLPDropoutGaussianRegressor(args, \
+                    [self.D]+list(self.layers)+[2], 'model'+str(i)) for i in range(self.Nensemble)] 
 
-    def _fit_heuristic(self):
+
+    def _fit_nonbayes(self):
         self.session = {"tf_session":None,"saver":None,"ensemble":None}
         
         # define tf variables
@@ -215,9 +223,14 @@ class regressor():
                 if np.mod(itr,100)==0:
                     self.session["tf_session"].run(tf.assign(model.lr,\
                             self.method_args["learning_rate"]*(self.method_args["decay_rate"]**(itr/100))))
+        
+        # pass in standardized data
+        pred_mean,pred_std = self._predict_nonbayes(self.train_data.xs_standardized)
+        
+        rmse = np.sqrt(mse(self.train_data.ys,pred_mean))
+        return rmse
 
-
-    def _predict_heuristic(self,xs):
+    def _predict_nonbayes(self,xs):
         en_mean = 0.0
         en_var = 0.0
 
@@ -254,7 +267,7 @@ class regressor():
 
         return y_pred,y_std
 
-    def _save_heuristic(self,prefix):
+    def _save_nonbayes(self,prefix):
         attributes = {}
         for _attr in [_a for _a in self.__dict__ if _a not in ["session"]]:
             attributes.update({_attr:getattr(self,_attr)})
@@ -266,7 +279,7 @@ class regressor():
     def _save_bayes(self,prefix):
         raise NotImplementedError
 
-    def _load_heuristic(self,prefix):
+    def _load_nonbayes(self,prefix):
         self.session = {"tf_session":None,"ensemble":None,"saver":None}
         self._init_MLPGaussianRegressor()
         self.session["tf_session"] = tf.Session()
