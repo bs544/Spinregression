@@ -73,7 +73,8 @@ class regressor():
         set method specific arguments
         """
         default_values = {"nonbayes":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0},\
-                          "nonbayes_dropout":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0},\
+                          "nonbayes_dropout":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,\
+                          "grad_clip":100.0,"keep_prob":0.8},\
                           "vi_bayes":{}}
 
         if any([_arg not in default_values[self.method].keys() for _arg in method_args.keys()]):
@@ -84,7 +85,7 @@ class regressor():
             if _attr not in method_args.keys(): method_args.update({_attr:default_values[self.method][_attr]})
         
         self.method_args = method_args
-
+        
     def set_activation(self,activation):
         """
         Set type of activation function to use for all nodes
@@ -142,13 +143,13 @@ class regressor():
         """
         # use shift and scaling from training data
         xs_test = self.train_data.get_xs_standardized(X)
+        
+        # numer of samples to draw from approx. posterior or MC dropout
+        if Nsample is None: Nsample = self.Nensemble
 
         if self.method in ["nonbayes","nonbayes_dropout"]:
-            mean,var = self._predict_nonbayes(xs_test)
+            mean,var = self._predict_nonbayes(xs_test,Nsample)
         elif self.method == "bayes":
-            # numer of samples to draw from approx. posterior
-            if Nsample is None: Nsample = self.Nensemble
-
             mean,var = self._predict_bayes(xs_test,Nsample)
         else: raise NotImplementedError
 
@@ -195,8 +196,8 @@ class regressor():
             self.session["ensemble"] = [MLPGaussianRegressor(args, \
                     [self.D]+list(self.layers)+[2], 'model'+str(i)) for i in range(self.Nensemble)] 
         elif self.method == "nonbayes_dropout":
-            self.session["ensemble"] = [MLPDropoutGaussianRegressor(args, \
-                    [self.D]+list(self.layers)+[2], 'model'+str(i)) for i in range(self.Nensemble)] 
+            # single instance, sample same net with different nodes dropped each sample
+            self.session["ensemble"] = [MLPDropoutGaussianRegressor(args,[self.D]+list(self.layers)+[2], 'model1')] 
 
 
     def _fit_nonbayes(self):
@@ -217,32 +218,50 @@ class regressor():
             for model in self.session["ensemble"]:
                 # can train on distinct mini batches for each ensemble
                 x,y = self.train_data.next_batch()
-
+        
                 feed = {model.input_data: x, model.target_data: y}
-                _, nll, m, v = self.session["tf_session"].run([model.train_op, model.nll, model.mean, model.var], feed)
+                if self.method == "nonbayes_dropout":
+                    feed.update({model.dr : self.method_args["keep_prob"]})
+
+                if self.method == "nonbayes":
+                    _, nll, m, v = self.session["tf_session"].run([model.train_op, model.nll, model.mean, model.var], feed)
+                elif self.method == "nonbayes_dropout":
+                    _, nll = self.session["tf_session"].run([model.train_op, model.nll], feed)
 
                 if np.mod(itr,100)==0:
                     self.session["tf_session"].run(tf.assign(model.lr,\
                             self.method_args["learning_rate"]*(self.method_args["decay_rate"]**(itr/100))))
         
         # pass in standardized data
-        pred_mean,pred_std = self._predict_nonbayes(self.train_data.xs_standardized)
+        pred_mean,pred_std = self._predict_nonbayes(self.train_data.xs_standardized,self.Nensemble)
         
         rmse = np.sqrt(mse(self.train_data.ys,pred_mean))
         return rmse
 
-    def _predict_nonbayes(self,xs):
+    def _predict_nonbayes(self,xs,Nsample):
         en_mean = 0.0
         en_var = 0.0
+        cntr = 0
 
         for model in self.session["ensemble"]:
-            feed = {model.input_data: xs}
-            mean,var = self.session["tf_session"].run([model.mean,model.var],feed)
-            en_mean += mean
-            en_var += var + mean**2
-        
-        en_mean /= len(self.session["ensemble"])
-        en_var = en_var/len(self.session["ensemble"]) - en_mean**2
+            if self.method == "nonbayes_dropout":
+                num_samples = Nsample
+            else:
+                num_samples = 1
+            
+            for _draw_sample in range(num_samples):
+
+                feed = {model.input_data: xs}
+                if self.method == "nonbayes_dropout":
+                    feed.update({model.dr : self.method_args["keep_prob"]})
+                mean,var = self.session["tf_session"].run([model.mean,model.var],feed)
+                en_mean += mean
+                en_var += var + mean**2
+                
+                # count number of samples drawn
+                cntr += 1
+        en_mean /= cntr
+        en_var = en_var/cntr - en_mean**2
         return en_mean,en_var
 
     def _init_bayes(self):

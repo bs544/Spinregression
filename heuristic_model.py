@@ -157,7 +157,7 @@ class MLPDropoutGaussianRegressor():
             # so that we maintain the same model and not change the network
             graph = tf.get_default_graph()
             mask = graph.get_tensor_by_name('dropout_layer'+str(i)+'/Floor:0')
-            x_at = tf.mul(x_at, mask)
+            x_at = tf.multiply(x_at, mask)
 
         output_at = tf.add(tf.matmul(x_at, self.weights[-1]), self.biases[-1])
 
