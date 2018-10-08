@@ -185,7 +185,8 @@ class regressor():
     
     def _init_MLPGaussianRegressor(self):
         combine_args = self.method_args
-        combine_args.update({"activation":getattr(self,"activation")})
+        for _attr in ["activation","dtype"]:
+            combine_args.update({_attr:getattr(self,_attr)})
 
         # a class with key,value as attribute name,value
         args = toy_argparse(combine_args)
