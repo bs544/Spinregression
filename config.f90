@@ -17,9 +17,21 @@ module config
 
 
     type bispect_param_type
+        !---------------------------------------------------!
+        ! NOTE                                              !
+        ! ----                                              !
+        ! attribute calc_type determines which features     !
+        ! from powerspectrum and bispectrum to compute.     !
+        !                                                   !
+        ! calc_type = 0 : powerspectrum only                !
+        ! calc_type = 1 : bispectrum only                   !
+        ! calc_type = 2 : powerspectrum and bispectrum      !
+        !---------------------------------------------------!
+
         real(8) :: rcut                                     ! interaction cut off (A)
         integer :: lmax                                     ! spherical component
         integer :: nmax                                     ! radial component
+        integer :: calc_type                                ! type of feature calc to perform
     end type bispect_param_type
 
     !* type instances
@@ -30,17 +42,22 @@ module config
     !* buffer arrays to remove redunant computation
     
     real(8),allocatable :: buffer_spherical_harm_const(:,:) ! constant to spherical harmonics (m,l)
+    complex(8),allocatable :: buffer_spherical_harm(:,:,:)  ! Y_iml
     real(8),allocatable :: buffer_radial_phi_Nalpha(:)      ! normalizing constant for alpha       
     real(8),allocatable :: buffer_radial_g(:,:)             ! radial components for given grid point
     real(8),allocatable :: buffer_spherical_p(:,:,:)        ! associated legendre polynomial
     real(8),allocatable :: buffer_polar_sc(:,:,:)           ! [cos(theta),sin(theta) for neighbour for grid point]
     real(8),allocatable :: buffer_radial_overlap_s(:,:)     ! overlap matrix of radial bases
     real(8),allocatable :: buffer_radial_overlap_w(:,:)     ! linear combination coefficients from basis overlap
+    real(8),allocatable :: buffer_cg_coeff(:,:,:,:,:,:)     ! SU(2) Clebsch-Gordan coefficients
+    complex(8),allocatable :: buffer_cnlm(:,:,:)            ! environment projection onto bases
 
     !* omp directives for private globally scoped variables
     !$omp threadprivate(buffer_radial_g)
     !$omp threadprivate(buffer_spherical_p)
     !$omp threadprivate(buffer_polar_sc)
+    !$omp threadprivate(buffer_cnlm)
+    !$omp threadprivate(buffer_spherical_harm)
 
     contains
         !* methods
@@ -53,6 +70,18 @@ module config
             
             type_instance%rcut = rcut
         end subroutine bispect_param_type__set_rcut
+
+        subroutine bispect_param_type__set_calc_type(type_instance,calc_type)
+            implicit none
+
+            type(bispect_param_type),intent(inout) :: type_instance
+            integer,intent(in) :: calc_type
+
+            if ((calc_type.lt.0).or.(calc_type.gt.1)) then
+                call error_message("bispect_param_type__set_calc_type","unsupported calculation type")
+            end if
+            type_instance%calc_type = calc_type
+        end subroutine bispect_param_type__set_calc_type
 
         subroutine bispect_param_type__set_ln(type_instance,lmax,nmax)
             implicit none
@@ -160,7 +189,9 @@ module config
             real(8) :: rcut2,dr_vec(1:3)
             real(8) :: polar_buffer(1:3,1:structure%nall)
             integer :: ii,cntr
-
+integer :: dim2(1:3)
+dim2 = shape(buffer_cnlm)
+write(*,*) 'B',dim2
             if(allocated(polar)) then
                 deallocate(polar)
             end if

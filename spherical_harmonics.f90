@@ -2,7 +2,7 @@ module spherical_harmonics
     implicit none
 
     contains
-        real(8) FUNCTION plgndr_dep(l,m,x)
+        real(8) function plgndr_dep(l,m,x)
             INTEGER l,m
             REAL(8) x
             INTEGER i,ll
@@ -49,11 +49,11 @@ module spherical_harmonics
                 endif
             endif
             return
-        END function plgndr_dep
+        end function plgndr_dep
 
         real(8) function plgndr_s(l,m,x)
             ! x must lie in range [-1,1]
-
+            ! Numerical recipes for fortran
             implicit none
 
             integer,intent(in) :: l,m
@@ -289,4 +289,79 @@ module spherical_harmonics
             end do                
             ql_bruteforce = sum(qml)
         end function ql_bruteforce
+        
+        
+        real(8) function cg_su2( j1t, j2t, j3t, m1t, m2t, m3t )
+            !-------------------------------------------------------------------------
+            !                             ****************
+            !                             ***   DWR3   ***
+            !                             ****************
+            ! ----------------------------------------------------------------------
+            ! Update:        ... original code by J.P. Draayer
+            !          05/01 ... modified according to SU3CGVCS by C. Bahri
+            ! ----------------------------------------------------------------------
+            !     Wigner coefficients for SO(3) -- triangle relations checked in
+            !     delta.
+            ! ----------------------------------------------------------------------
+            ! References:
+            !  1. M.E. Rose, Elementary Theory of Angular Momentum (Wiley)
+            ! ----------------------------------------------------------------------
+            ! C. Bahri, D.J. Rowe, J.P. Draayer, Computer Physics Communications
+            ! , 159, (2004), Eslevier
+            !     ------------------------------------------------------------------
+            implicit none
+            
+            !* args
+            integer j1t, j2t, j3t, m1t, m2t, m3t
+
+            ! scratch
+            integer i1, i2, i3, i4, i5, it, itmin, itmax
+            real(8) :: dc, dtop, dbot, dsum, dwr3
+            real(8) :: dlogf(0:2000)
+
+            !real(8) :: dexp, dlogf  
+            !logical :: btest
+            !common / BKDF / dlogf(0:2000)
+
+            dwr3 = 0.d0
+            if( m1t+m2t-m3t .ne. 0 ) then
+                CG_SU2 = dwr3 
+            end if
+            
+            dc = dlogf(j1t+j2t-j3t) + dlogf(j2t+j3t-j1t) + dlogf(j3t+j1t-j2t) - dlogf(j1t+j2t+j3t+2)
+            
+            
+            i1 = j3t - j2t + m1t
+            i2 = j3t - j1t - m2t
+            i3 = j1t + j2t - j3t
+            i4 = j1t - m1t
+            if( btest( i4, 0 ) ) then
+                cg_su2 = dwr3
+            end if
+            i5 = j2t + m2t
+            if( btest( i5, 0 ) ) then
+                cg_su2 = dwr3
+            end if
+
+            itmin = max0( 0, -i1, -i2 )
+            itmax = min0( i3, i4, i5 )
+            if( itmin .gt. itmax ) then
+                cg_su2 = dwr3
+            end if
+
+            dtop = ( dlog(dfloat(j3t+1)) + dc + dlogf(j1t+m1t) +&
+                   &dlogf(j1t-m1t) + dlogf(j2t+m2t) + dlogf(j2t-m2t) +&
+                   &dlogf(j3t+m3t) + dlogf(j3t-m3t) ) / dfloat(2)
+            do it = itmin, itmax, 2
+                dbot = dlogf(i3-it) + dlogf(i4-it) + dlogf(i5-it) +&
+                       &dlogf(it) + dlogf(i1+it) + dlogf(i2+it)
+                dsum = dexp(dtop-dbot)
+                if( btest( it, 1 ) ) then
+                  dwr3 = dwr3 - dsum
+                else
+                  dwr3 = dwr3 + dsum
+                end if
+            end do
+            cg_su2 = dwr3
+        end function cg_su2
 end module spherical_harmonics 

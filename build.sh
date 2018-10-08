@@ -23,7 +23,7 @@ do
 done
 
 functions_to_expose="calculate_powerspectrum_type1"
-functions_to_expose+=" cardinality_bispectrum_type1"
+functions_to_expose+=" check_cardinality"
 modules_to_expose="features.f90"
 
 # remove this line on Cottrell

@@ -12,17 +12,27 @@ module features
     real(8),external :: ddot
 
     contains
-        integer function cardinality_bispectrum_type1(lmax,nmax)
+        integer function check_cardinality(lmax,nmax,calc_type)
             implicit none
 
-            integer,intent(in) :: lmax,nmax
+            integer,intent(in) :: lmax,nmax,calc_type
 
-            !* l=[0,lmax] , n=[1,nmax]
-            cardinality_bispectrum_type1 = (lmax+1)*nmax
-        end function cardinality_bispectrum_type1
+            integer :: res
+
+            if (calc_type.eq.0) then
+                !* powerspectrum only, l=[0,lmax] , n=[1,nmax]
+                res = (lmax+1)*nmax
+            else if (calc_type.eq.1) then
+                !* bispectrum only, l1=[0,lmax],l2=[0,lmax],l3=[0,lmax]
+                res = (lmax+1)**3 * nmax
+            else
+                call error_message("check_cardinality","unsupported calculation type")
+            end if
+            check_cardinality = res
+        end function check_cardinality
 
         subroutine calculate_powerspectrum_type1(cell,atom_positions,grid_coordinates,rcut,parallel,&
-        &lmax,nmax,X)
+        &lmax,nmax,calc_type,X)
             ! Compute bispectrum features as in [1]
             !
             ! x_nl = sum_{m=-l}^{m=l} c_{nlm}^* c_{nlm} 
@@ -47,7 +57,7 @@ module features
             real(8),intent(in) :: cell(1:3,1:3),atom_positions(:,:)
             real(8),intent(in) :: grid_coordinates(:,:),rcut
             logical,intent(in) :: parallel
-            integer,intent(in) :: lmax,nmax
+            integer,intent(in) :: lmax,nmax,calc_type
             real(8),intent(inout) :: X(:,:)
 
             !* scratch
@@ -56,7 +66,6 @@ module features
 
             !* openmp
             integer :: thread_idx,num_threads
-
 
             !===============!
             !* arg parsing *!
@@ -74,9 +83,12 @@ module features
 
             !* check shape of output array (Nfeats,ngrid)
             dim = shape(X)
-            if ((dim(1).ne.cardinality_bispectrum_type1(lmax,nmax)).or.(dim(2).ne.ngrid)) then
+            if ((dim(1).ne.check_cardinality(lmax,nmax,calc_type)).or.(dim(2).ne.ngrid)) then
                 call error_message("calculate_bispectrum_type1","shape mismatch between output array and input args")
             end if
+
+            !* calculation type
+            call bispect_param_type__set_calc_type(bispect_param,calc_type)
 
             !* interaction cut off
             call bispect_param_type__set_rcut(bispect_param,rcut)
@@ -145,7 +157,7 @@ module features
             end if            
         end subroutine calculate_powerspectrum_type1
 
-        subroutine features_bispectrum_type1(polar,x)
+        subroutine features_bispectrum_type1_deprecated(polar,x)
             ! concacenation order:
             !
             ! for l in [0,lmax]:
@@ -189,7 +201,7 @@ module features
 
                             reduce_array = reduce_array + tmp2
                         end do neighbour_loop
-
+                        
                         val_ln = val_ln + buffer_spherical_harm_const(mm,ll)*sum(reduce_array**2)
                     end do
                     
@@ -200,11 +212,84 @@ module features
                     val_ln = val_ln + ddot_wrapper(buffer_radial_g(:,nn),buffer_spherical_p(:,0,ll))**2 * tmp3
 
                     x(cntr) = val_ln
+
+! DEBUG FOR NEW IMPLEMENTATION
+val_ln = 0.0d0 
+do mm=1,ll
+    val_ln = val_ln + abs(buffer_cnlm(mm,ll,nn)*dconjg(buffer_cnlm(mm,ll,nn)))
+end do
+val_ln = val_ln*2.0d0 + abs( buffer_cnlm(0,ll,nn) * dconjg(buffer_cnlm(0,ll,nn)) )
+write(*,*) 'old = ',x(cntr),'new=',val_ln
+
+! DEBUG FOR NEW IMPLEMENTATION
                     cntr = cntr + 1
                 end do
             end do
-        end subroutine features_bispectrum_type1
+        end subroutine features_bispectrum_type1_deprecated
+        
+        subroutine features_bispectrum_type1(polar,x)
+            ! concacenation order:
+            !
+            ! for l in [0,lmax]:
+            !     for n in [1,nmax]:
+            implicit none
 
+            !* args
+            real(8),intent(in) :: polar(:,:)
+            real(8),intent(inout) :: x(:)
+            
+            !* scratch
+            integer :: cntr,lmax
+            integer :: ll,nn
+            integer :: ll_1,ll_2,ll_3,mm_1,mm_2,mm_3
+            real(8) :: res,cg_coeff
+            complex(8) :: buffer(1:2)
+
+
+            !* redundancy arrays specific to grid point
+            call init_buffer_all_polar(polar)
+           
+            lmax = bispect_param%lmax
+
+            cntr = 1
+            if ((bispect_param%calc_type.eq.0).or.(bispect_param%calc_type.eq.2)) then
+                do nn=1,bispect_param%nmax
+                    do ll=0,lmax
+                        res = abs( buffer_cnlm(0,ll,nn) * dconjg(buffer_cnlm(0,ll,nn)) )
+                        res = res + sum(abs( buffer_cnlm(1:ll,ll,nn) * dconjg(buffer_cnlm(1:ll,ll,nn)) ))*2.0d0
+
+                        X(cntr) = res
+                        cntr = cntr + 1
+                    end do
+                end do
+            else if ((bispect_param%calc_type.eq.1).or.(bispect_param%calc_type.eq.2)) then
+                nn_loop : do nn=1,bispect_param%nmax
+                    ll_1_loop : do ll_1=0,lmax
+                        ll_2_loop : do ll_2=0,lmax
+                            ll_3_loop : do ll_3=0,lmax
+                                
+                                res = 0.0d0
+                                mm_1_loop : do mm_1=-ll_1,ll_1
+                                    buffer(1) = buffer_cnlm(mm_1,ll_1,nn)
+
+                                    mm_2_loop : do mm_2=-ll_2,ll_2
+                                        buffer(2) = buffer_cnlm(mm_2,ll_2,nn)
+
+                                        mm_3_loop : do mm_3=-ll_3,ll_3
+                                            cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
+                                            res = res + abs(dconjg(buffer(1))*buffer(2)*buffer_cnlm(mm_3,ll_3,nn)) * cg_coeff
+                                        end do mm_3_loop
+                                    end do mm_2_loop
+                                end do mm_1_loop
+
+                                X(cntr) = res
+                                cntr = cntr + 1
+                            end do ll_3_loop
+                        end do ll_2_loop
+                    end do ll_1_loop
+                end do nn_loop
+            end if
+        end subroutine features_bispectrum_type1
 
         subroutine init_buffer_all_general()
             implicit none
@@ -212,7 +297,102 @@ module features
             call init_buffer_spherical_harm_const()
             call init_buffer_radial_phi_Nalpha()
             call init_buffer_radial_basis_overlap()
+            call init_buffer_cnlm_mem()
+
+            if ((bispect_param%calc_type.eq.1).or.(bispect_param%calc_type.eq.2)) then
+                !* bispectrum needs Clebsch-Gordan coefficients
+                call init_buffer_cg_coeff()
+            end if
         end subroutine init_buffer_all_general
+
+        subroutine init_spherical_harm(polars)
+            use spherical_harmonics, only : plgndr_s
+
+            implicit none
+
+            !* args
+            real(8),intent(in) :: polars(:,:)
+
+            !* scratch
+            integer :: dim(1:2),ii,mm,ll
+            real(8),allocatable :: cos_theta(:)
+            real(8) :: cos_m,sin_m,const_ml
+
+            dim = shape(polars)
+            allocate(cos_theta(1:dim(2)))
+            do ii=1,dim(2),1
+                cos_theta(ii) = cos(polars(2,ii))
+            end do
+
+            if (allocated(buffer_spherical_harm)) then
+                deallocate(buffer_spherical_harm)
+            end if
+            allocate(buffer_spherical_harm(1:dim(2),0:bispect_param%lmax,0:bispect_param%lmax))
+            buffer_spherical_harm = 0.0d0
+
+            do ll=0,bispect_param%lmax
+                !* norm const for ((m,l)=(0,l)
+                !const_ml = buffer_spherical_harm_const(0,ll)
+                const_ml = sqrt(buffer_spherical_harm_const(0,ll)) !! THIS IS **2 the ACTUAL SPH HARM CONSTANT
+                do ii=1,dim(2)
+                    buffer_spherical_harm(ii,0,ll) = plgndr_s(ll,0,cos_theta(ii))*const_ml*complex(1.0d0,0.0d0)
+                end do
+
+                do mm=1,ll
+                    !* normalisation term
+                    !const_ml = buffer_spherical_harm_const(mm,ll)
+                    const_ml = sqrt(buffer_spherical_harm_const(mm,ll))
+
+                    do ii=1,dim(2),1
+                        cos_m = buffer_polar_sc(1,ii,mm)
+                        sin_m = buffer_polar_sc(2,ii,mm)
+                        buffer_spherical_harm(ii,mm,ll) = plgndr_s(ll,mm,cos_theta(ii))*const_ml*complex(cos_m,sin_m)
+                    end do
+                end do
+            end do
+
+            deallocate(cos_theta)
+        end subroutine init_spherical_harm
+
+        subroutine init_buffer_cg_coeff()
+            use spherical_harmonics, only : cg_su2
+
+            implicit none
+
+            !* scratch
+            integer :: lmax,ll_1,ll_2,ll_3,mm_1,mm_2,mm_3
+            real(8) :: cgval
+
+            if(allocated(buffer_cg_coeff)) then
+                deallocate(buffer_cg_coeff)
+            end if
+
+            lmax = bispect_param%lmax
+
+            ! indices = (m3,m2,m,l3,l2,l)
+            allocate(buffer_cg_coeff(-lmax:lmax,-lmax:lmax,-lmax:lmax,0:lmax,0:lmax,0:lmax))
+
+            buffer_CG_coeff = 0.0d0
+
+            do ll_1=0,lmax
+                do ll_2=0,lmax
+                    do ll_3=0,lmax
+                        do mm_1=-ll_1,ll_1
+                            do mm_2 = -ll_2,ll_2
+                                do mm_3=-ll_3,ll_3
+                                    !* compute
+                                    cgval = cg_su2(ll_1,ll_2,ll_3,mm_1,mm_2,mm_3)
+                                    
+                                    !* store
+                                    buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1) = cgval 
+                                end do
+                            end do
+                        end do
+                    end do
+                end do
+            end do
+
+        end subroutine init_buffer_CG_coeff
 
         subroutine init_buffer_spherical_harm_const()
             implicit none
@@ -233,6 +413,21 @@ module features
                 end do
             end do
         end subroutine init_buffer_spherical_harm_const
+
+        subroutine init_buffer_cnlm_mem()
+            implicit none
+
+            !* scratch
+            integer :: lmax
+
+            lmax = bispect_param%lmax
+
+            if(allocated(buffer_cnlm)) then
+                deallocate(buffer_cnlm)
+            end if
+
+            allocate(buffer_cnlm(-lmax:lmax,0:lmax,1:bispect_param%nmax))
+        end subroutine init_buffer_cnlm_mem
 
         subroutine init_buffer_radial_phi_Nalpha()
             implicit none
@@ -332,14 +527,20 @@ module features
 
             real(8),intent(in) :: polar(:,:)            
 
-            !* associated legendre polynomials of polar angle
+            !* associated legendre polynomials of polar angle - NO LONGER NECESSARY
             call init_buffer_spherical_p(polar)
 
             !* trigonometric bases for azimuthal angle
             call init_buffer_polar_sc(polar)
+            
+            !* Y_iml
+            call init_spherical_harm(polar)
         
             !* radial component in radial bases
             call init_radial_g(polar)
+
+            !* compute cnlm
+            call calc_cnlm()
         end subroutine init_buffer_all_polar
 
         real(8) function spherical_harm_const__sub1(mm,ll)
@@ -461,4 +662,39 @@ module features
             res2 = ddot(dim1(1),arr1,1,arr2,1)
             ddot_wrapper = res2
         end function ddot_wrapper
+
+        subroutine calc_cnlm()
+            ! compute cnlm for given density point
+            implicit none
+
+            integer :: lmax,mm,ll,nn,dim(1:3),ii,natm
+            complex(8) :: res(1:2),tmp
+
+
+            lmax = bispect_param%lmax
+            dim = shape(buffer_spherical_harm)
+            natm = dim(1)
+
+            buffer_cnlm = 0.0d0
+            do nn=1,bispect_param%nmax
+                do ll=0,lmax
+                    do mm=0,ll
+                        res = 0.0d0
+                        do ii=1,natm
+                            tmp = buffer_radial_g(ii,nn)*buffer_spherical_harm(ii,mm,ll)
+                            
+                            res(1) = res(1) + tmp
+                            ! NOT SURE if conjg(sum x) = sum conjg(x)
+                            res(2) = res(2) + dconjg(tmp)
+                        end do
+                    
+                        buffer_cnlm(mm,ll,nn) = res(1)
+
+                        !* Y_-m,l = Y_ml^* * (-1)^m
+                        buffer_cnlm(-mm,ll,nn) = res(2) * (-1.0d0**mm)
+                    end do
+                end do
+            end do
+        end subroutine calc_cnlm
+
 end module features

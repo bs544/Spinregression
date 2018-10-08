@@ -2,10 +2,10 @@
 module for bispectrum features around atoms
 """
 from features.powerspectrum_f90api import f90wrap_calculate_powerspectrum_type1 as f90_po_type1
-from features.powerspectrum_f90api import f90wrap_cardinality_bispectrum_type1 as f90_num_features_type1
+from features.powerspectrum_f90api import f90wrap_check_cardinality as f90_num_features_type1
 import numpy as np
 
-def powerspectrum(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form=1):
+def powerspectrum(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="power"):
     """
     Return the bispectrum features for a seris of grid points in real space.
     These points are embedded in an infinite periodic crystal defined by
@@ -43,10 +43,10 @@ def powerspectrum(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form=1)
     extend to inifinity (interactions are finite due to tapering with radius)
     """
 
-    if form not in [1]:
+    if form not in ["power","bi","power&bi"]:
         raise FeaturesError("bispectrum type {} not supported".format(form))
 
-    num_features = f90_num_features_type1(lmax=lmax,nmax=nmax)
+    num_features = f90_num_features_type1(lmax=lmax,nmax=nmax,calc_type={"power":0,"bi":1,"power&bi":2}[form])
 
     X = np.zeros((num_features,xyz.shape[0]),dtype=np.float64,order='F')
 
