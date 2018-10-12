@@ -25,6 +25,8 @@ module features
             else if (calc_type.eq.1) then
                 !* bispectrum only, l1=[0,lmax],l2=[0,lmax],l3=[0,lmax]
                 res = (lmax+1)**3 * nmax
+            else if (calc_type.eq.2) then
+                res = (lmax+1)*nmax + (lmax+1)**3 * nmax
             else
                 call error_message("check_cardinality","unsupported calculation type")
             end if

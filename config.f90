@@ -189,9 +189,7 @@ module config
             real(8) :: rcut2,dr_vec(1:3)
             real(8) :: polar_buffer(1:3,1:structure%nall)
             integer :: ii,cntr
-integer :: dim2(1:3)
-dim2 = shape(buffer_cnlm)
-write(*,*) 'B',dim2
+            
             if(allocated(polar)) then
                 deallocate(polar)
             end if

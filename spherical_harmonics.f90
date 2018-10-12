@@ -325,7 +325,7 @@ module spherical_harmonics
 
             dwr3 = 0.d0
             if( m1t+m2t-m3t .ne. 0 ) then
-                CG_SU2 = dwr3 
+                cg_su2 = dwr3 
             end if
             
             dc = dlogf(j1t+j2t-j3t) + dlogf(j2t+j3t-j1t) + dlogf(j3t+j1t-j2t) - dlogf(j1t+j2t+j3t+2)
@@ -364,4 +364,10 @@ module spherical_harmonics
             end do
             cg_su2 = dwr3
         end function cg_su2
+
+        !real(8) function cg_varshalovich(a,alpha,b,beta,c,gama)
+        !    implicit none
+
+        !    real(8)
+        !end function gc_varshalovich
 end module spherical_harmonics 
