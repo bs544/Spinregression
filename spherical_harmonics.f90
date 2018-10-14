@@ -1,4 +1,6 @@
 module spherical_harmonics
+    use config
+    
     implicit none
 
     contains
@@ -365,9 +367,88 @@ module spherical_harmonics
             cg_su2 = dwr3
         end function cg_su2
 
-        !real(8) function cg_varshalovich(a,alpha,b,beta,c,gama)
-        !    implicit none
+       real(8) function cg_varshalovich(l_1,m_1,l_2,m_2,l,m)
+            ! C_{l_1,m_1,l_2,m_2}^{l,m}
+            ! where l,m values are int of half int
+            implicit none
 
-        !    real(8)
-        !end function gc_varshalovich
+            real(8),intent(in) :: l_1,m_1,l_2,m_2,l,m
+
+            !* scratch
+            real(8) :: minimum,min_array(1:7),sqrtres
+            real(8) :: imin,imax,val,sumres,sqrtarg
+            real(8) :: dble_ii
+            integer :: ii
+
+            if (abs(m_1 + m_2 - m).gt.1e-15) then
+                cg_varshalovich = 0.0d0
+            else
+                min_array(1) = l_1 + l_2 - l
+                min_array(2) = l_1 - l_2 + l
+                min_array(3) = -l_1 + l_2 + l
+                min_array(4) = l_1 + l_2 + l + 1.0d0
+                min_array(5) = l_1 - abs(m_1)
+                min_array(6) = l_2 - abs(m_2)
+                min_array(7) = l - abs(m)
+
+                minimum = minval(min_array)
+
+                if (minimum.lt.0.0d0) then
+                    cg_varshalovich = 0.0d0
+                else
+                    ! NOTE : Python int(x)=floor(x) for x>0, int(x)=ceil(x) for x<0
+                    ! NOTE : without casting to dble, int overflows for large l
+                    sqrtarg = 1.0d0
+                    sqrtarg = sqrtarg * buffer_factorial(python_int(l_1+m_1))
+                    sqrtarg = sqrtarg * buffer_factorial(python_int(l_1-m_1))
+                    sqrtarg = sqrtarg * buffer_factorial(python_int(l_2+m_2))
+                    sqrtarg = sqrtarg * buffer_factorial(python_int(l_2-m_2))
+                    sqrtarg = sqrtarg * buffer_factorial(python_int(l+m))
+                    sqrtarg = sqrtarg * buffer_factorial(python_int(l-m))
+                    sqrtarg = sqrtarg * dble((int(2.0d0*l) + 1))
+                    sqrtarg = sqrtarg * buffer_factorial(python_int(min_array(1)))
+                    sqrtarg = sqrtarg * buffer_factorial(python_int(min_array(2)))
+                    sqrtarg = sqrtarg * buffer_factorial(python_int(min_array(3)))
+
+                    ! sqrtarg is int so need to divide after casting to double
+                    sqrtres = sqrt(sqrtarg / buffer_factorial(python_int(min_array(4))))
+                    
+                    min_array(1) = l_1 + m_2 - l
+                    min_array(2) = l_2 - m_1 - l
+                    min_array(3) = 0.0d0
+                    min_array(4) = l_2 + m_2
+                    min_array(5) = l_1 - m_1
+                    min_array(6) = l_1 + l_2 - l
+
+                    imin = maxval(min_array(1:3))
+                    imax = minval(min_array(4:6))
+                    sumres = 0.0d0
+                    do ii=python_int(imin),python_int(imax)
+                        dble_ii = dble(ii)
+                        val = 1.0d0
+                        val = val * buffer_factorial(ii)
+                        val = val * buffer_factorial(python_int(l_1 + l_2 - l - dble_ii ))
+                        val = val * buffer_factorial(python_int(l_1 - m_1 - dble_ii ))
+                        val = val * buffer_factorial(python_int(l_2 + m_2 - dble_ii ))
+                        val = val * buffer_factorial(python_int(l - l_2 + m_1 + dble_ii ))
+                        val = val * buffer_factorial(python_int(l - l_1 - m_2 + dble_ii ))
+                        sumres = sumres + (-1.0d0)**ii / val
+                    end do
+                    cg_varshalovich = sqrtres * sumres
+                end if
+            end if
+        end function cg_varshalovich
+
+        integer function python_int(x)
+            ! python int(x) = floor(x) for x>0 , python int(x) = ceil(x), x<0
+            implicit none
+
+            real(8),intent(in) :: x
+
+            if (x.ge.0.0d0) then
+                python_int = int(floor(x))
+            else
+                python_int = int(ceiling(x))
+            end if
+        end function python_int
 end module spherical_harmonics 

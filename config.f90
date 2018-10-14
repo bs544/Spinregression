@@ -50,6 +50,7 @@ module config
     real(8),allocatable :: buffer_radial_overlap_s(:,:)     ! overlap matrix of radial bases
     real(8),allocatable :: buffer_radial_overlap_w(:,:)     ! linear combination coefficients from basis overlap
     real(8),allocatable :: buffer_cg_coeff(:,:,:,:,:,:)     ! SU(2) Clebsch-Gordan coefficients
+    real(8),allocatable :: buffer_factorial(:)              ! factorial [0,3*lmax+1] for CB coefficients
     complex(8),allocatable :: buffer_cnlm(:,:,:)            ! environment projection onto bases
 
     !* omp directives for private globally scoped variables
@@ -244,4 +245,5 @@ module config
                 end do
             end do
         end subroutine config_type__wrap_atom_positions
+
 end module config

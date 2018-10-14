@@ -302,6 +302,9 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
             call init_buffer_cnlm_mem()
 
             if ((bispect_param%calc_type.eq.1).or.(bispect_param%calc_type.eq.2)) then
+                !* CB coefficients repeatedly use factorial evaluation
+                call init_buffer_factorial()
+
                 !* bispectrum needs Clebsch-Gordan coefficients
                 call init_buffer_cg_coeff()
             end if
@@ -698,5 +701,23 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
                 end do
             end do
         end subroutine calc_cnlm
+
+        subroutine init_buffer_factorial()
+            implicit none
+
+            integer :: ll,lmax
+
+            lmax = bispect_param%lmax
+
+            if(allocated(buffer_factorial)) then
+                deallocate(buffer_factorial)
+            end if
+            allocate(buffer_factorial(0:3*lmax+1))
+        
+            buffer_factorial(0) = 1.0d0
+            do ll=1,3*lmax+1
+                buffer_factorial(ll) = dble(ll)*buffer_factorial(ll-1)
+            end do
+        end subroutine init_buffer_factorial
 
 end module features
