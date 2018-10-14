@@ -234,6 +234,7 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
             !
             ! for l in [0,lmax]:
             !     for n in [1,nmax]:
+            use spherical_harmonics, only : cg_varshalovich
             implicit none
 
             !* args
@@ -278,13 +279,22 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
                                         buffer(2) = buffer(1)*buffer_cnlm(mm_2,ll_2,nn)
 
                                         mm_3_loop : do mm_3=-ll_3,ll_3
-                                            cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
-                                            res_cmplx = res_cmplx + buffer(2)*buffer_cnlm(mm_3,ll_3,nn) * cg_coeff
+                                            !cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
+                                            cg_coeff = cg_varshalovich(dble(ll_2),dble(mm_2),dble(ll_3),dble(mm_3),&
+                                            &dble(ll_1),dble(mm_1))
+                                            
+                                            !res_cmplx = res_cmplx + buffer(2)*buffer_cnlm(mm_3,ll_3,nn) * cg_coeff
+
+                                            res_cmplx = res_cmplx + cg_coeff*conjg(buffer_cnlm(mm_1,ll_1,nn))*&
+                                            &buffer_cnlm(mm_2,ll_2,nn)*buffer_cnlm(mm_3,ll_3,nn)
                                         end do mm_3_loop
                                     end do mm_2_loop
                                 end do mm_1_loop
 
-                                X(cntr) = abs(res_cmplx)
+if(abs(imagpart(res_cmplx)).gt.1e-10) then
+write(*,*) res_cmplx,ll_3,ll_2,ll_1
+end if
+                                X(cntr) = real(res_cmplx)
                                 cntr = cntr + 1
                             end do ll_3_loop
                         end do ll_2_loop
