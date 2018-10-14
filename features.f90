@@ -244,8 +244,8 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
             integer :: cntr,lmax
             integer :: ll,nn
             integer :: ll_1,ll_2,ll_3,mm_1,mm_2,mm_3
-            real(8) :: res,cg_coeff
-            complex(8) :: buffer(1:2)
+            real(8) :: res_real,cg_coeff
+            complex(8) :: buffer(1:2),res_cmplx
 
 
             !* redundancy arrays specific to grid point
@@ -257,10 +257,10 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
             if ((bispect_param%calc_type.eq.0).or.(bispect_param%calc_type.eq.2)) then
                 do nn=1,bispect_param%nmax
                     do ll=0,lmax
-                        res = abs( buffer_cnlm(0,ll,nn) * dconjg(buffer_cnlm(0,ll,nn)) )
-                        res = res + sum(abs( buffer_cnlm(1:ll,ll,nn) * dconjg(buffer_cnlm(1:ll,ll,nn)) ))*2.0d0
+                        res_real = abs( buffer_cnlm(0,ll,nn) * dconjg(buffer_cnlm(0,ll,nn)) )
+                        res_real = res_real + sum(abs( buffer_cnlm(1:ll,ll,nn) * dconjg(buffer_cnlm(1:ll,ll,nn)) ))*2.0d0
 
-                        X(cntr) = res
+                        X(cntr) = res_real
                         cntr = cntr + 1
                     end do
                 end do
@@ -270,21 +270,21 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
                         ll_2_loop : do ll_2=0,lmax
                             ll_3_loop : do ll_3=0,lmax
                                 
-                                res = 0.0d0
+                                res_cmplx = complex(0.0d0,0.0d0)
                                 mm_1_loop : do mm_1=-ll_1,ll_1
-                                    buffer(1) = buffer_cnlm(mm_1,ll_1,nn)
+                                    buffer(1) = dconjg(buffer_cnlm(mm_1,ll_1,nn))
 
                                     mm_2_loop : do mm_2=-ll_2,ll_2
-                                        buffer(2) = buffer_cnlm(mm_2,ll_2,nn)
+                                        buffer(2) = buffer(1)*buffer_cnlm(mm_2,ll_2,nn)
 
                                         mm_3_loop : do mm_3=-ll_3,ll_3
                                             cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
-                                            res = res + abs(dconjg(buffer(1))*buffer(2)*buffer_cnlm(mm_3,ll_3,nn)) * cg_coeff
+                                            res_cmplx = res_cmplx + buffer(2)*buffer_cnlm(mm_3,ll_3,nn) * cg_coeff
                                         end do mm_3_loop
                                     end do mm_2_loop
                                 end do mm_1_loop
 
-                                X(cntr) = res
+                                X(cntr) = abs(res_cmplx)
                                 cntr = cntr + 1
                             end do ll_3_loop
                         end do ll_2_loop
@@ -360,13 +360,13 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
         end subroutine init_spherical_harm
 
         subroutine init_buffer_cg_coeff()
-            use spherical_harmonics, only : cg_su2
+            use spherical_harmonics, only : cg_su2,cg_varshalovich
 
             implicit none
 
             !* scratch
             integer :: lmax,ll_1,ll_2,ll_3,mm_1,mm_2,mm_3
-            real(8) :: cgval
+            real(8) :: cgval,dble_ll_1,dble_mm_1,dble_ll_2,dble_mm_2,dble_ll_3,dble_mm_3
 
             if(allocated(buffer_cg_coeff)) then
                 deallocate(buffer_cg_coeff)
@@ -380,13 +380,20 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
             buffer_CG_coeff = 0.0d0
 
             do ll_1=0,lmax
+                dble_ll_1 = dble(ll_1)
                 do ll_2=0,lmax
+                    dble_ll_2 = dble(ll_2)
                     do ll_3=0,lmax
+                        dble_ll_3 = dble(ll_3)
                         do mm_1=-ll_1,ll_1
+                            dble_mm_1 = dble(mm_1)
                             do mm_2 = -ll_2,ll_2
+                                dble_mm_2 = dble(mm_2)
                                 do mm_3=-ll_3,ll_3
+                                    dble_mm_3 = dble(mm_3)
                                     !* compute
-                                    cgval = cg_su2(ll_1,ll_2,ll_3,mm_1,mm_2,mm_3)
+                                    cgval = cg_varshalovich(dble_ll_2,dble_mm_2,dble_ll_3,dble_mm_3,dble_ll_1,dble_mm_1)
+                                    !cgval = cg_su2(ll_1,ll_2,ll_3,mm_1,mm_2,mm_3)
                                     
                                     !* store
                                     buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1) = cgval 
