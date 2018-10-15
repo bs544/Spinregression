@@ -234,11 +234,11 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
             !
             ! for l in [0,lmax]:
             !     for n in [1,nmax]:
-            use spherical_harmonics, only : cg_varshalovich
+            use spherical_harmonics, only : cg_varshalovich,sph_harm
             implicit none
 
-            !* args
-            real(8),intent(in) :: polar(:,:)
+            !* args ! CHANGE INOUT TO IN
+            real(8),intent(inout) :: polar(:,:)
             real(8),intent(inout) :: x(:)
             
             !* scratch
@@ -247,8 +247,10 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
             integer :: ll_1,ll_2,ll_3,mm_1,mm_2,mm_3
             real(8) :: res_real,cg_coeff
             complex(8) :: buffer(1:2),res_cmplx
-
-
+integer :: dim(1:2),natm,ii,mm
+dim = shape(polar)
+natm = dim(2)
+!polar = 1.0d0            
             !* redundancy arrays specific to grid point
             call init_buffer_all_polar(polar)
            
@@ -266,6 +268,19 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
                     end do
                 end do
             else if ((bispect_param%calc_type.eq.1).or.(bispect_param%calc_type.eq.2)) then
+            
+                do nn=1,bispect_param%nmax
+                    do ll=0,lmax
+                        do mm=-ll,ll
+                            res_cmplx = complex(0.0d0,0.0d0)
+                            do ii=1,natm
+                                res_cmplx = res_cmplx + 1.0d0*sph_harm(mm,ll,polar(2,ii),polar(3,ii))
+                            end do
+                            buffer_cnlm(mm,ll,nn) = res_cmplx
+                        end do
+                    end do
+                end do
+                
                 nn_loop : do nn=1,bispect_param%nmax
                     ll_1_loop : do ll_1=0,lmax
                         ll_2_loop : do ll_2=0,lmax
@@ -291,9 +306,9 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
                                     end do mm_2_loop
                                 end do mm_1_loop
 
-if(abs(imagpart(res_cmplx)).gt.1e-10) then
-write(*,*) res_cmplx,ll_3,ll_2,ll_1
-end if
+!if(abs(imagpart(res_cmplx)).gt.1e-10) then
+!write(*,*) res_cmplx,ll_3,ll_2,ll_1
+!end if
                                 X(cntr) = real(res_cmplx)
                                 cntr = cntr + 1
                             end do ll_3_loop
@@ -562,7 +577,7 @@ end if
             call init_radial_g(polar)
 
             !* compute cnlm
-            call calc_cnlm()
+            call calc_cnlm(polar)
         end subroutine init_buffer_all_polar
 
         real(8) function spherical_harm_const__sub1(mm,ll)
@@ -685,10 +700,11 @@ end if
             ddot_wrapper = res2
         end function ddot_wrapper
 
-        subroutine calc_cnlm()
+        subroutine calc_cnlm(polar)
             ! compute cnlm for given density point
+use spherical_harmonics, only : sph_harm            
             implicit none
-
+            real(8) :: polar(:,:)
             integer :: lmax,mm,ll,nn,dim(1:3),ii,natm
             complex(8) :: res(1:2),tmp
 
@@ -696,25 +712,34 @@ end if
             lmax = bispect_param%lmax
             dim = shape(buffer_spherical_harm)
             natm = dim(1)
-
+            
             buffer_cnlm = 0.0d0
             do nn=1,bispect_param%nmax
                 do ll=0,lmax
-                    do mm=0,ll
-                        res = 0.0d0
+                    do mm=-ll,ll
+                        res(1) = complex(0.0d0,0.0d0)
                         do ii=1,natm
-                            tmp = buffer_radial_g(ii,nn)*buffer_spherical_harm(ii,mm,ll)
-                            
-                            res(1) = res(1) + tmp
-                            ! NOT SURE if conjg(sum x) = sum conjg(x)
-                            res(2) = res(2) + dconjg(tmp)
+                            res(1) = res(1) + 1.0d0*sph_harm(mm,ll,polar(2,ii),polar(3,ii))
                         end do
-                    
                         buffer_cnlm(mm,ll,nn) = res(1)
-
-                        !* Y_-m,l = Y_ml^* * (-1)^m
-                        buffer_cnlm(-mm,ll,nn) = res(2) * (-1.0d0**mm)
                     end do
+
+                    !do mm=0,ll
+                    !    res = 0.0d0
+                    !    do ii=1,natm
+                    !        !* Could convert this to lapack using my ddot wrapper
+                    !        tmp = buffer_radial_g(ii,nn)*buffer_spherical_harm(ii,mm,ll)
+                    !        
+                    !        res(1) = res(1) + tmp
+                    !        ! NOT SURE if conjg(sum x) = sum conjg(x)
+                    !        res(2) = res(2) + dconjg(tmp)
+                    !    end do
+                    !
+                    !    buffer_cnlm(mm,ll,nn) = res(1)
+
+                    !    !* Y_-m,l = Y_ml^* * (-1)^m
+                    !    buffer_cnlm(-mm,ll,nn) = res(2) * (-1.0d0**mm)
+                    !end do
                 end do
             end do
         end subroutine calc_cnlm

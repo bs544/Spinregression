@@ -200,7 +200,7 @@ module spherical_harmonics
 
             !* associated legendre polynomial
             if (m.lt.0) then
-                plm = (-1.0d0**(-m))*plgndr_s(l,-m,cos(theta)) * dble(factorial_duplicated(l+m))/dble(factorial_duplicated(l-m))
+                plm = (-1.0d0)**(-m)*plgndr_s(l,-m,cos(theta)) * dble(factorial_duplicated(l+m))/dble(factorial_duplicated(l-m))
             else
                 plm = plgndr_s(l,m,cos(theta))
             end if
