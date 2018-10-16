@@ -235,6 +235,7 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
             ! for l in [0,lmax]:
             !     for n in [1,nmax]:
             use spherical_harmonics, only : cg_varshalovich,sph_harm
+            use quip_code, only : cg_calculate
             implicit none
 
             !* args ! CHANGE INOUT TO IN
@@ -265,22 +266,23 @@ natm = dim(2)
 
                         X(cntr) = res_real
                         cntr = cntr + 1
+!write(*,*) "p(",ll,")=",X(cntr-1)                        
                     end do
                 end do
             else if ((bispect_param%calc_type.eq.1).or.(bispect_param%calc_type.eq.2)) then
             
-                do nn=1,bispect_param%nmax
-                    do ll=0,lmax
-                        do mm=-ll,ll
-                            res_cmplx = complex(0.0d0,0.0d0)
-                            do ii=1,natm
-                                res_cmplx = res_cmplx + 1.0d0*sph_harm(mm,ll,polar(2,ii),polar(3,ii))
-                            end do
-                            buffer_cnlm(mm,ll,nn) = res_cmplx
-                        end do
-                    end do
-                end do
-                
+                !do nn=1,bispect_param%nmax
+                !    do ll=0,lmax
+                !        do mm=-ll,ll
+                !            res_cmplx = complex(0.0d0,0.0d0)
+                !            do ii=1,natm
+                !                res_cmplx = res_cmplx + 1.0d0*sph_harm(mm,ll,polar(2,ii),polar(3,ii))
+                !            end do
+                !            buffer_cnlm(mm,ll,nn) = res_cmplx
+                !        end do
+                !    end do
+                !end do
+! COMPARE ALLOWED L VALUES TO QUIP                
                 nn_loop : do nn=1,bispect_param%nmax
                     ll_1_loop : do ll_1=0,lmax
                         ll_2_loop : do ll_2=0,lmax
@@ -294,20 +296,23 @@ natm = dim(2)
                                         buffer(2) = buffer(1)*buffer_cnlm(mm_2,ll_2,nn)
 
                                         mm_3_loop : do mm_3=-ll_3,ll_3
-                                            !cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
-                                            cg_coeff = cg_varshalovich(dble(ll_2),dble(mm_2),dble(ll_3),dble(mm_3),&
-                                            &dble(ll_1),dble(mm_1))
+                                            cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
+                                            !cg_coeff = cg_calculate(ll_2,mm_2,ll_3,mm_3,&
+                                            !&ll_1,mm_1)
                                             
-                                            !res_cmplx = res_cmplx + buffer(2)*buffer_cnlm(mm_3,ll_3,nn) * cg_coeff
+                                            res_cmplx = res_cmplx + buffer(2)*buffer_cnlm(mm_3,ll_3,nn) * cg_coeff
 
-                                            res_cmplx = res_cmplx + cg_coeff*conjg(buffer_cnlm(mm_1,ll_1,nn))*&
-                                            &buffer_cnlm(mm_2,ll_2,nn)*buffer_cnlm(mm_3,ll_3,nn)
+                                            !res_cmplx = res_cmplx + cg_coeff*conjg(buffer_cnlm(mm_1,ll_1,nn))*&
+                                            !&buffer_cnlm(mm_2,ll_2,nn)*buffer_cnlm(mm_3,ll_3,nn)
                                         end do mm_3_loop
                                     end do mm_2_loop
                                 end do mm_1_loop
 
 !if(abs(imagpart(res_cmplx)).gt.1e-10) then
 !write(*,*) res_cmplx,ll_3,ll_2,ll_1
+!end if
+!if ( (ll_1.eq.ll_3).and.(ll_2.eq.0) ) then
+!write(*,*) 'b(',ll_1,ll_2,ll_3,')=',real(res_cmplx)/buffer_cnlm(0,0,nn)
 !end if
                                 X(cntr) = real(res_cmplx)
                                 cntr = cntr + 1
@@ -336,7 +341,7 @@ natm = dim(2)
         end subroutine init_buffer_all_general
 
         subroutine init_spherical_harm(polars)
-            use spherical_harmonics, only : plgndr_s
+            use spherical_harmonics, only : plgndr
 
             implicit none
 
@@ -361,22 +366,15 @@ natm = dim(2)
             buffer_spherical_harm = 0.0d0
 
             do ll=0,bispect_param%lmax
-                !* norm const for ((m,l)=(0,l)
-                !const_ml = buffer_spherical_harm_const(0,ll)
-                const_ml = sqrt(buffer_spherical_harm_const(0,ll)) !! THIS IS **2 the ACTUAL SPH HARM CONSTANT
                 do ii=1,dim(2)
-                    buffer_spherical_harm(ii,0,ll) = plgndr_s(ll,0,cos_theta(ii))*const_ml*complex(1.0d0,0.0d0)
+                    buffer_spherical_harm(ii,0,ll) = plgndr(ll,0,cos_theta(ii))*complex(1.0d0,0.0d0)
                 end do
 
                 do mm=1,ll
-                    !* normalisation term
-                    !const_ml = buffer_spherical_harm_const(mm,ll)
-                    const_ml = sqrt(buffer_spherical_harm_const(mm,ll))
-
                     do ii=1,dim(2),1
                         cos_m = buffer_polar_sc(1,ii,mm)
                         sin_m = buffer_polar_sc(2,ii,mm)
-                        buffer_spherical_harm(ii,mm,ll) = plgndr_s(ll,mm,cos_theta(ii))*const_ml*complex(cos_m,sin_m)
+                        buffer_spherical_harm(ii,mm,ll) = plgndr(ll,mm,cos_theta(ii))*complex(cos_m,sin_m)
                     end do
                 end do
             end do
@@ -386,6 +384,7 @@ natm = dim(2)
 
         subroutine init_buffer_cg_coeff()
             use spherical_harmonics, only : cg_su2,cg_varshalovich
+            use quip_code, only : cg_calculate
 
             implicit none
 
@@ -419,7 +418,8 @@ natm = dim(2)
                                     !* compute
                                     cgval = cg_varshalovich(dble_ll_2,dble_mm_2,dble_ll_3,dble_mm_3,dble_ll_1,dble_mm_1)
                                     !cgval = cg_su2(ll_1,ll_2,ll_3,mm_1,mm_2,mm_3)
-                                    
+                                    !cgval = cg_calculate(ll_2,mm_2,ll_3,mm_3,ll_1,mm_1)
+
                                     !* store
                                     buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1) = cgval 
                                 end do
@@ -716,30 +716,30 @@ use spherical_harmonics, only : sph_harm
             buffer_cnlm = 0.0d0
             do nn=1,bispect_param%nmax
                 do ll=0,lmax
-                    do mm=-ll,ll
-                        res(1) = complex(0.0d0,0.0d0)
-                        do ii=1,natm
-                            res(1) = res(1) + 1.0d0*sph_harm(mm,ll,polar(2,ii),polar(3,ii))
-                        end do
-                        buffer_cnlm(mm,ll,nn) = res(1)
-                    end do
-
-                    !do mm=0,ll
-                    !    res = 0.0d0
+                    !do mm=-ll,ll
+                    !    res(1) = complex(0.0d0,0.0d0)
                     !    do ii=1,natm
-                    !        !* Could convert this to lapack using my ddot wrapper
-                    !        tmp = buffer_radial_g(ii,nn)*buffer_spherical_harm(ii,mm,ll)
-                    !        
-                    !        res(1) = res(1) + tmp
-                    !        ! NOT SURE if conjg(sum x) = sum conjg(x)
-                    !        res(2) = res(2) + dconjg(tmp)
+                    !        res(1) = res(1) + 1.0d0*sph_harm(mm,ll,polar(2,ii),polar(3,ii))
                     !    end do
-                    !
                     !    buffer_cnlm(mm,ll,nn) = res(1)
-
-                    !    !* Y_-m,l = Y_ml^* * (-1)^m
-                    !    buffer_cnlm(-mm,ll,nn) = res(2) * (-1.0d0**mm)
                     !end do
+
+                    do mm=0,ll
+                        res = 0.0d0
+                        do ii=1,natm
+                            !* Could convert this to lapack using my ddot wrapper
+                            tmp = buffer_spherical_harm(ii,mm,ll)!*buffer_radial_g(ii,nn)
+                            
+                            res(1) = res(1) + tmp
+                            ! NOT SURE if conjg(sum x) = sum conjg(x)
+                            !res(2) = res(2) + dconjg(tmp)
+                        end do
+                    
+                        buffer_cnlm(mm,ll,nn) = res(1)
+
+                        !* Y_-m,l = Y_ml^* * (-1)^m
+                        buffer_cnlm(-mm,ll,nn) = dconjg(res(1)) * ((-1.0d0)**mm)
+                    end do
                 end do
             end do
         end subroutine calc_cnlm

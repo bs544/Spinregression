@@ -87,6 +87,50 @@ module spherical_harmonics
             end if
         end function plgndr_s
 
+        real(8) function plgndr(l,m,x)
+            ! This contains the factor 
+            ! sqrt{  [2*l+1]/[4*pi] *factorial(l-m)/factorial(l+m)  }
+            implicit none
+
+            integer,intent(in) :: l,m
+            real(8),intent(in) :: x
+
+            integer :: i,ll
+            real(8) :: fact,oldfact,pll,pmm,pmmp1,omx2
+
+            pmm = 1.0d0
+            if (m.gt.0) then
+                omx2 = (1.0d0-x)*(1.0d0+x)
+                fact = 1.0d0
+                do i=1,m
+                    pmm = pmm*omx2*fact/(fact+1.0d0)
+                    fact = fact + 2.0d0
+                end do
+            end if
+            
+            pmm = sqrt( dble(2*m+1)*pmm/12.5663706144d0 )
+            if(mod(m,2).eq.1) pmm = -pmm
+
+            if(l.eq.m) then
+                plgndr = pmm
+            else
+                pmmp1 = x*sqrt(2.0d0*dble(m)+3.0d0)*pmm
+                if (l.eq.m+1) then
+                    plgndr = pmmp1
+                else
+                    oldfact = sqrt(dble(2*m+3))
+                    do ll=m+2,l
+                        fact = sqrt( dble(4*(ll**2)-1)/dble((ll**2)-(m**2)) )
+                        pll = (x*pmmp1-pmm/oldfact)*fact
+                        oldfact = fact
+                        pmm = pmmp1
+                        pmmp1 = pll
+                    end do
+                    plgndr = pll
+                end if
+            end if
+        end function plgndr
+
         function arth_d(first,increment,n)
             ! numerical recipes nrutil, function arth_d
 
@@ -195,14 +239,16 @@ module spherical_harmonics
             real(8) :: klm,plm
             complex(8) :: tmp
     
-            !* constant
-            klm = sqrt(((2.0d0*dble(l)+1.0d0)*dble(factorial_duplicated(l-m)))/(12.5663706144d0*dble(factorial_duplicated(l+m))))
+            !* constant now in plgndr
+            klm = 1.0d0!sqrt(((2.0d0*dble(l)+1.0d0)*dble(factorial_duplicated(l-m)))/(12.5663706144d0*dble(factorial_duplicated(l+m))))
 
             !* associated legendre polynomial
             if (m.lt.0) then
-                plm = (-1.0d0)**(-m)*plgndr_s(l,-m,cos(theta)) * dble(factorial_duplicated(l+m))/dble(factorial_duplicated(l-m))
+                plm = (-1.0d0)**(-m)*plgndr(l,-m,cos(theta)) !* dble(factorial_duplicated(l+m))/dble(factorial_duplicated(l-m))
+                !plm = (-1.0d0)**(-m)*plgndr(l,-m,cos(theta)) * dble(factorial_duplicated(l+m))/dble(factorial_duplicated(l-m))
             else
-                plm = plgndr_s(l,m,cos(theta))
+                plm = plgndr(l,m,cos(theta))
+                !plm = plgndr(l,m,cos(theta))
             end if
 
             !* exp(i phi m)
