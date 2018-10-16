@@ -17,16 +17,23 @@ module features
 
             integer,intent(in) :: lmax,nmax,calc_type
 
-            integer :: res
+            integer :: res,nn,ll,ll_1,ll_2
 
             if (calc_type.eq.0) then
                 !* powerspectrum only, l=[0,lmax] , n=[1,nmax]
                 res = (lmax+1)*nmax
             else if (calc_type.eq.1) then
-                !* bispectrum only, l1=[0,lmax],l2=[0,lmax],l3=[0,lmax]
-                res = (lmax+1)**3 * nmax
-            else if (calc_type.eq.2) then
-                res = (lmax+1)*nmax + (lmax+1)**3 * nmax
+                !* bispectrum only, l1=[0,lmax],l2=[0,lmax],l3=[l2,lmax]
+                res = 0
+                do nn=1,nmax
+                    do ll=0,lmax
+                        do ll_1=0,lmax
+                            do ll_2=ll_1,lmax
+                                res = res + 1
+                            end do
+                        end do
+                    end do
+                end do
             else
                 call error_message("check_cardinality","unsupported calculation type")
             end if
@@ -215,15 +222,6 @@ module features
 
                     x(cntr) = val_ln
 
-! DEBUG FOR NEW IMPLEMENTATION
-val_ln = 0.0d0 
-do mm=1,ll
-    val_ln = val_ln + abs(buffer_cnlm(mm,ll,nn)*dconjg(buffer_cnlm(mm,ll,nn)))
-end do
-val_ln = val_ln*2.0d0 + abs( buffer_cnlm(0,ll,nn) * dconjg(buffer_cnlm(0,ll,nn)) )
-write(*,*) 'old = ',x(cntr),'new=',val_ln
-
-! DEBUG FOR NEW IMPLEMENTATION
                     cntr = cntr + 1
                 end do
             end do
@@ -244,21 +242,18 @@ write(*,*) 'old = ',x(cntr),'new=',val_ln
             
             !* scratch
             integer :: cntr,lmax
-            integer :: ll,nn
+            integer :: ll,nn,mm_2_limits(1:2)
             integer :: ll_1,ll_2,ll_3,mm_1,mm_2,mm_3
             real(8) :: res_real,cg_coeff
             complex(8) :: buffer(1:2),res_cmplx
-integer :: dim(1:2),natm,ii,mm
-dim = shape(polar)
-natm = dim(2)
-!polar = 1.0d0            
+            
             !* redundancy arrays specific to grid point
             call init_buffer_all_polar(polar)
            
             lmax = bispect_param%lmax
 
             cntr = 1
-            if ((bispect_param%calc_type.eq.0).or.(bispect_param%calc_type.eq.2)) then
+            if (bispect_param%calc_type.eq.0) then
                 do nn=1,bispect_param%nmax
                     do ll=0,lmax
                         res_real = abs( buffer_cnlm(0,ll,nn) * dconjg(buffer_cnlm(0,ll,nn)) )
@@ -266,62 +261,61 @@ natm = dim(2)
 
                         X(cntr) = res_real
                         cntr = cntr + 1
-!write(*,*) "p(",ll,")=",X(cntr-1)                        
                     end do
                 end do
-            else if ((bispect_param%calc_type.eq.1).or.(bispect_param%calc_type.eq.2)) then
+            else if (bispect_param%calc_type.eq.1) then
             
-                !do nn=1,bispect_param%nmax
-                !    do ll=0,lmax
-                !        do mm=-ll,ll
-                !            res_cmplx = complex(0.0d0,0.0d0)
-                !            do ii=1,natm
-                !                res_cmplx = res_cmplx + 1.0d0*sph_harm(mm,ll,polar(2,ii),polar(3,ii))
-                !            end do
-                !            buffer_cnlm(mm,ll,nn) = res_cmplx
-                !        end do
-                !    end do
-                !end do
-! COMPARE ALLOWED L VALUES TO QUIP                
                 nn_loop : do nn=1,bispect_param%nmax
                     ll_1_loop : do ll_1=0,lmax
                         ll_2_loop : do ll_2=0,lmax
-                            ll_3_loop : do ll_3=0,lmax
+                            ll_3_loop : do ll_3=ll_2,lmax
                                 
                                 res_cmplx = complex(0.0d0,0.0d0)
                                 mm_1_loop : do mm_1=-ll_1,ll_1
                                     buffer(1) = dconjg(buffer_cnlm(mm_1,ll_1,nn))
+    
+                                    call get_m2_limits(ll_2,ll_3,mm_1,mm_2_limits)
 
-                                    mm_2_loop : do mm_2=-ll_2,ll_2
+                                    mm_2_loop : do mm_2=mm_2_limits(1),mm_2_limits(2)
                                         buffer(2) = buffer(1)*buffer_cnlm(mm_2,ll_2,nn)
-
-                                        mm_3_loop : do mm_3=-ll_3,ll_3
-                                            cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
-                                            !cg_coeff = cg_calculate(ll_2,mm_2,ll_3,mm_3,&
-                                            !&ll_1,mm_1)
-                                            
-                                            res_cmplx = res_cmplx + buffer(2)*buffer_cnlm(mm_3,ll_3,nn) * cg_coeff
-
-                                            !res_cmplx = res_cmplx + cg_coeff*conjg(buffer_cnlm(mm_1,ll_1,nn))*&
-                                            !&buffer_cnlm(mm_2,ll_2,nn)*buffer_cnlm(mm_3,ll_3,nn)
-                                        end do mm_3_loop
+                                        mm_3 = mm_1 - mm_2
+                                        
+                                        cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
+                                        res_cmplx = res_cmplx + buffer(2)*buffer_cnlm(mm_3,ll_3,nn) * cg_coeff
                                     end do mm_2_loop
                                 end do mm_1_loop
 
-!if(abs(imagpart(res_cmplx)).gt.1e-10) then
-!write(*,*) res_cmplx,ll_3,ll_2,ll_1
-!end if
-!if ( (ll_1.eq.ll_3).and.(ll_2.eq.0) ) then
-!write(*,*) 'b(',ll_1,ll_2,ll_3,')=',real(res_cmplx)/buffer_cnlm(0,0,nn)
-!end if
                                 X(cntr) = real(res_cmplx)
                                 cntr = cntr + 1
+                            
                             end do ll_3_loop
                         end do ll_2_loop
                     end do ll_1_loop
                 end do nn_loop
             end if
         end subroutine features_bispectrum_type1
+
+        subroutine get_m2_limits(ll_2,ll_3,mm_1,limits)
+            ! along with |l1-l2|<=l<=l1+l2,
+            ! m1 + m2 = m are 2 conditions for which CG coefficients are nonzero
+            implicit none
+
+            integer,intent(in) :: ll_2,ll_3,mm_1
+            integer,intent(inout) :: limits(1:2)
+
+            !* scratch
+            integer :: array(1:2)
+
+            ! min value
+            array(1) = -ll_2
+            array(2) = mm_1 - ll_3      ! m2_min = m1 - l2
+            limits(1) = maxval(array)   
+
+            ! max value
+            array(1) = ll_2
+            array(2) = mm_1 + ll_3
+            limits(2) = minval(array)
+        end subroutine get_m2_limits
 
         subroutine init_buffer_all_general()
             implicit none
@@ -418,7 +412,7 @@ natm = dim(2)
                                     !* compute
                                     cgval = cg_varshalovich(dble_ll_2,dble_mm_2,dble_ll_3,dble_mm_3,dble_ll_1,dble_mm_1)
                                     !cgval = cg_su2(ll_1,ll_2,ll_3,mm_1,mm_2,mm_3)
-                                    !cgval = cg_calculate(ll_2,mm_2,ll_3,mm_3,ll_1,mm_1)
+                                    !cgval = cg_calculate(ll_2,mm_2,ll_3,mm_3,ll_1,mm_1) !THIS IS WRONG
 
                                     !* store
                                     buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1) = cgval 
@@ -702,11 +696,10 @@ natm = dim(2)
 
         subroutine calc_cnlm(polar)
             ! compute cnlm for given density point
-use spherical_harmonics, only : sph_harm            
             implicit none
             real(8) :: polar(:,:)
             integer :: lmax,mm,ll,nn,dim(1:3),ii,natm
-            complex(8) :: res(1:2),tmp
+            complex(8) :: res,tmp
 
 
             lmax = bispect_param%lmax
@@ -716,29 +709,19 @@ use spherical_harmonics, only : sph_harm
             buffer_cnlm = 0.0d0
             do nn=1,bispect_param%nmax
                 do ll=0,lmax
-                    !do mm=-ll,ll
-                    !    res(1) = complex(0.0d0,0.0d0)
-                    !    do ii=1,natm
-                    !        res(1) = res(1) + 1.0d0*sph_harm(mm,ll,polar(2,ii),polar(3,ii))
-                    !    end do
-                    !    buffer_cnlm(mm,ll,nn) = res(1)
-                    !end do
-
                     do mm=0,ll
-                        res = 0.0d0
+                        res = complex(0.0d0,0.0d0)
                         do ii=1,natm
-                            !* Could convert this to lapack using my ddot wrapper
-                            tmp = buffer_spherical_harm(ii,mm,ll)!*buffer_radial_g(ii,nn)
+                            ! IF SPLIT REAL AND IMAG PARTS INTO SEPARATE ARRAYS, COULD USE DDOT WRAPPER HERE
+                            tmp = buffer_spherical_harm(ii,mm,ll)*buffer_radial_g(ii,nn)
                             
-                            res(1) = res(1) + tmp
-                            ! NOT SURE if conjg(sum x) = sum conjg(x)
-                            !res(2) = res(2) + dconjg(tmp)
+                            res = res + tmp
                         end do
                     
-                        buffer_cnlm(mm,ll,nn) = res(1)
+                        buffer_cnlm(mm,ll,nn) = res
 
-                        !* Y_-m,l = Y_ml^* * (-1)^m
-                        buffer_cnlm(-mm,ll,nn) = dconjg(res(1)) * ((-1.0d0)**mm)
+                        !* Y_-m,l = Y_ml^* * (-1)^m  CONJUGATE(sum x) = sum CONJUGATE(x)
+                        buffer_cnlm(-mm,ll,nn) = dconjg(res) * ((-1.0d0)**mm)
                     end do
                 end do
             end do
