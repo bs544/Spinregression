@@ -22,7 +22,7 @@ do
     gfortran -c $file".f90" $FFLAGS
 done
 
-functions_to_expose="calculate_powerspectrum_type1"
+functions_to_expose="calculate"
 functions_to_expose+=" check_cardinality"
 modules_to_expose="features.f90"
 

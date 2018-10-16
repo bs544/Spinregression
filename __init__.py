@@ -1,4 +1,4 @@
-from features.powerspectrum import *
+from features.bispectrum import *
 from features.util import *
 from features.regressor import *
 

@@ -9,6 +9,37 @@ module utility
     external :: dgetri
 
     contains
+        logical function cg_nonzero(ll,ll_1,ll_2)
+            ! get l,l1,l2 values where CG has nonzero coefficients
+            implicit none
+
+            integer,intent(in) :: ll,ll_1,ll_2
+
+            cg_nonzero = (abs(ll_1-ll_2).le.ll).and.(ll.le.(ll_1+ll_2))
+        end function cg_nonzero
+
+        subroutine get_m2_limits(ll_2,ll_3,mm_1,limits)
+            ! along with |l1-l2|<=l<=l1+l2,
+            ! m1 + m2 = m are 2 conditions for which CG coefficients are nonzero
+            implicit none
+
+            integer,intent(in) :: ll_2,ll_3,mm_1
+            integer,intent(inout) :: limits(1:2)
+
+            !* scratch
+            integer :: array(1:2)
+
+            ! min value
+            array(1) = -ll_2
+            array(2) = mm_1 - ll_3      ! m2_min = m1 - l2
+            limits(1) = maxval(array)   
+
+            ! max value
+            array(1) = ll_2
+            array(2) = mm_1 + ll_3
+            limits(2) = minval(array)
+        end subroutine get_m2_limits
+
         subroutine sqrt_of_matrix_inverse(symmetric_matrix,invsqrt)
             ! perform inverse via eigen decomposition
             ! B = V D V^{-1} where D is diagonal matrix of eigenvalues, then

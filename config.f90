@@ -52,6 +52,7 @@ module config
     real(8),allocatable :: buffer_cg_coeff(:,:,:,:,:,:)     ! SU(2) Clebsch-Gordan coefficients
     real(8),allocatable :: buffer_factorial(:)              ! factorial [0,3*lmax+1] for CB coefficients
     complex(8),allocatable :: buffer_cnlm(:,:,:)            ! environment projection onto bases
+    integer,allocatable :: buffer_lvalues(:,:)              ! l,l1,l2 for which CG has nonzero values
 
     !* omp directives for private globally scoped variables
     !$omp threadprivate(buffer_radial_g)

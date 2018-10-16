@@ -4,7 +4,7 @@ module features
     use config
     use io, only : error_message
     use boundaries, only : find_neighbouring_images
-    use utility, only : load_balance_alg_1
+    use utility, only : load_balance_alg_1,get_m2_limits,cg_nonzero
 
     implicit none
    
@@ -29,7 +29,13 @@ module features
                     do ll=0,lmax
                         do ll_1=0,lmax
                             do ll_2=ll_1,lmax
-                                res = res + 1
+                                ! feature invariant to ll_1,ll_2 permutation, 
+                                ! only want unique pair combinations
+
+                                if (cg_nonzero(ll,ll_1,ll_2)) then
+                                    !* only |l1+l2| <= l <= l1+l2 are nonzero
+                                    res = res + 1
+                                end if
                             end do
                         end do
                     end do
@@ -40,7 +46,7 @@ module features
             check_cardinality = res
         end function check_cardinality
 
-        subroutine calculate_powerspectrum_type1(cell,atom_positions,grid_coordinates,rcut,parallel,&
+        subroutine calculate(cell,atom_positions,grid_coordinates,rcut,parallel,&
         &lmax,nmax,calc_type,X)
             ! Compute bispectrum features as in [1]
             !
@@ -164,7 +170,7 @@ module features
                 
                 !$omp end parallel
             end if            
-        end subroutine calculate_powerspectrum_type1
+        end subroutine calculate
 
         subroutine features_bispectrum_type1_deprecated(polar,x)
             ! concacenation order:
@@ -233,7 +239,7 @@ module features
             ! for l in [0,lmax]:
             !     for n in [1,nmax]:
             use spherical_harmonics, only : cg_varshalovich,sph_harm
-            use quip_code, only : cg_calculate
+            !use quip_code, only : cg_calculate
             implicit none
 
             !* args ! CHANGE INOUT TO IN
@@ -241,7 +247,7 @@ module features
             real(8),intent(inout) :: x(:)
             
             !* scratch
-            integer :: cntr,lmax
+            integer :: cntr,lmax,num_l_triplets,dim(1:2)
             integer :: ll,nn,mm_2_limits(1:2)
             integer :: ll_1,ll_2,ll_3,mm_1,mm_2,mm_3
             real(8) :: res_real,cg_coeff
@@ -265,57 +271,75 @@ module features
                 end do
             else if (bispect_param%calc_type.eq.1) then
             
+                dim = shape(buffer_lvalues)
+                num_l_triplets = dim(2)
+        
                 nn_loop : do nn=1,bispect_param%nmax
-                    ll_1_loop : do ll_1=0,lmax
-                        ll_2_loop : do ll_2=0,lmax
-                            ll_3_loop : do ll_3=ll_2,lmax
+                    ll_loop : do ll=1,num_l_triplets
+                        !* |l2+l3| <= l1 <= l2+l3 are only nonzero CG coefficients
+                        ll_1 = buffer_lvalues(1,ll)
+                        ll_2 = buffer_lvalues(2,ll)
+                        ll_3 = buffer_lvalues(3,ll)
+
+                        res_cmplx = complex(0.0d0,0.0d0)
+
+                        mm_1_loop : do mm_1=-ll_1,ll_1
+                            ! reduce page thrashing
+                            buffer(1) = dconjg(buffer_cnlm(mm_1,ll_1,nn))
+
+                            ! m1 = m2 + m3 are only nonzero CG coefficients
+                            call get_m2_limits(ll_2,ll_3,mm_1,mm_2_limits)
+                    
+                            mm_2_loop : do mm_2=mm_2_limits(1),mm_2_limits(2)
+                                mm_3 = mm_1 - mm_2
                                 
-                                res_cmplx = complex(0.0d0,0.0d0)
-                                mm_1_loop : do mm_1=-ll_1,ll_1
-                                    buffer(1) = dconjg(buffer_cnlm(mm_1,ll_1,nn))
-    
-                                    call get_m2_limits(ll_2,ll_3,mm_1,mm_2_limits)
+                                !buffer(2) = buffer(1)*buffer_cnlm(mm_2,ll_2,nn)
+                                
+                                cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
+                                res_cmplx = res_cmplx + buffer(1)*buffer_cnlm(mm_2,ll_2,nn)*buffer_cnlm(mm_3,ll_3,nn)*cg_coeff
 
-                                    mm_2_loop : do mm_2=mm_2_limits(1),mm_2_limits(2)
-                                        buffer(2) = buffer(1)*buffer_cnlm(mm_2,ll_2,nn)
-                                        mm_3 = mm_1 - mm_2
-                                        
-                                        cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
-                                        res_cmplx = res_cmplx + buffer(2)*buffer_cnlm(mm_3,ll_3,nn) * cg_coeff
-                                    end do mm_2_loop
-                                end do mm_1_loop
-
-                                X(cntr) = real(res_cmplx)
-                                cntr = cntr + 1
-                            
-                            end do ll_3_loop
-                        end do ll_2_loop
-                    end do ll_1_loop
+                            end do mm_2_loop
+                        end do mm_1_loop
+                    
+                        X(cntr) = real(res_cmplx)
+                        cntr = cntr + 1
+                    
+                    end do ll_loop
                 end do nn_loop
             end if
+
+!                nn_loop : do nn=1,bispect_param%nmax
+!                    ll_1_loop : do ll_1=0,lmax
+!                        ll_2_loop : do ll_2=0,lmax
+!                            ll_3_loop : do ll_3=ll_2,lmax
+!                                
+!                                res_cmplx = complex(0.0d0,0.0d0)
+!                                mm_1_loop : do mm_1=-ll_1,ll_1
+!                                    buffer(1) = dconjg(buffer_cnlm(mm_1,ll_1,nn))
+!    
+!                                    call get_m2_limits(ll_2,ll_3,mm_1,mm_2_limits)
+!
+!                                    mm_2_loop : do mm_2=mm_2_limits(1),mm_2_limits(2)
+!                                        buffer(2) = buffer(1)*buffer_cnlm(mm_2,ll_2,nn)
+!                                        mm_3 = mm_1 - mm_2
+!                                        
+!                                        cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
+!                                        res_cmplx = res_cmplx + buffer(2)*buffer_cnlm(mm_3,ll_3,nn) * cg_coeff
+!                                    end do mm_2_loop
+!                                end do mm_1_loop
+!
+!                                X(cntr) = real(res_cmplx)
+!                                cntr = cntr + 1
+!if((ll_1.eq.ll_3).and.(ll_2.eq.0)) then
+!write(*,*) X(cntr-1)                   
+!end if
+!                            
+!                            end do ll_3_loop
+!                        end do ll_2_loop
+!                    end do ll_1_loop
+!                end do nn_loop
+!            end if
         end subroutine features_bispectrum_type1
-
-        subroutine get_m2_limits(ll_2,ll_3,mm_1,limits)
-            ! along with |l1-l2|<=l<=l1+l2,
-            ! m1 + m2 = m are 2 conditions for which CG coefficients are nonzero
-            implicit none
-
-            integer,intent(in) :: ll_2,ll_3,mm_1
-            integer,intent(inout) :: limits(1:2)
-
-            !* scratch
-            integer :: array(1:2)
-
-            ! min value
-            array(1) = -ll_2
-            array(2) = mm_1 - ll_3      ! m2_min = m1 - l2
-            limits(1) = maxval(array)   
-
-            ! max value
-            array(1) = ll_2
-            array(2) = mm_1 + ll_3
-            limits(2) = minval(array)
-        end subroutine get_m2_limits
 
         subroutine init_buffer_all_general()
             implicit none
@@ -325,12 +349,15 @@ module features
             call init_buffer_radial_basis_overlap()
             call init_buffer_cnlm_mem()
 
-            if ((bispect_param%calc_type.eq.1).or.(bispect_param%calc_type.eq.2)) then
+            if (bispect_param%calc_type.eq.1) then
                 !* CB coefficients repeatedly use factorial evaluation
                 call init_buffer_factorial()
 
                 !* bispectrum needs Clebsch-Gordan coefficients
                 call init_buffer_cg_coeff()
+       
+                !* only |l1+l2| <= l <= l1+l2 are nonzero
+                call init_buffer_lvalues()
             end if
         end subroutine init_buffer_all_general
 
@@ -378,7 +405,7 @@ module features
 
         subroutine init_buffer_cg_coeff()
             use spherical_harmonics, only : cg_su2,cg_varshalovich
-            use quip_code, only : cg_calculate
+            !use quip_code, only : cg_calculate
 
             implicit none
 
@@ -745,4 +772,45 @@ module features
             end do
         end subroutine init_buffer_factorial
 
+        subroutine init_buffer_lvalues()
+            ! Clebsch Gordan coefficients are non zero when 2 conditions are 
+            ! met :
+            ! A. |l1+l2| <= l <= l1+l2
+            ! B. m1+m2 = m
+            ! 
+            ! NOTE: also, since bispectrum coefficients are invariant to 
+            ! permutting l1,l2, only take unique l1,l2 pairs
+            implicit none
+
+            integer,allocatable :: tmp(:,:)
+            integer :: lmax,ll,ll_1,ll_2
+            integer :: cntr
+
+            lmax = bispect_param%lmax
+
+            if (allocated(buffer_lvalues)) then
+                deallocate(buffer_lvalues)
+            end if
+            
+            allocate(tmp(1:3,1:(lmax+1)**3))
+
+            cntr = 0
+            do ll=0,lmax
+                do ll_1=0,lmax
+                    do ll_2=ll_1,lmax
+                        if (cg_nonzero(ll,ll_1,ll_2)) then
+                            cntr = cntr + 1
+                            tmp(1,cntr) = ll
+                            tmp(2,cntr) = ll_1
+                            tmp(3,cntr) = ll_2
+                        end if
+                    end do
+                end do
+            end do
+
+            allocate(buffer_lvalues(1:3,1:cntr))
+            buffer_lvalues(:,:) = tmp(:,1:cntr)
+
+            deallocate(tmp)
+        end subroutine init_buffer_lvalues
 end module features
