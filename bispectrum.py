@@ -6,6 +6,22 @@ from features.powerspectrum_f90api import f90wrap_calculate_global as f90_calcul
 from features.powerspectrum_f90api import f90wrap_check_cardinality as f90_num_features
 import numpy as np
 
+def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form="powerspectrum",global_form="powerspectrum"):
+    """
+    For each density grid point in xyz, calculate local power/bi-spectrum 
+    features. Compute the global crystal representation using power/bi-spectrum
+    features once and concacentate this to all grid points 
+    """
+
+    localX = local_features(cell=cell,atom_pos_uvw=atom_pos_uvw,xyz=xyz,nmax=nmax,lmax=lmax,\
+        parallel=parallel,form=local_form)
+
+    globalX = global_features(cell=cell,atom_pos_uvw=atom_pos_uvw,nmax=nmax,lmax=lmax,form=global_form)
+
+    X = np.hstack(( localX , np.tile(globalX,(localX.shape[0],1)) ))
+    
+    return X 
+
 def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="powerspectrum"):
     """
     Return the bispectrum features for a seris of grid points in real space.
