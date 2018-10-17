@@ -32,7 +32,11 @@ class format_data():
             self.xs = X
             self.input_mean = np.mean(self.xs,axis=0)
             self.input_std = np.std(self.xs,axis=0)
-            
+
+            # check for nonactive bases and avoid divide by zero
+            idx = np.where(self.input_std<1e-15)[0]
+            self.input_std[idx] = 1.0
+
             # 0 mean, 1 standard deviation
             self.xs_standardized = self.get_xs_standardized(self.xs)
         if y is not None:
