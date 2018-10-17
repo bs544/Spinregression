@@ -145,7 +145,8 @@ module features
             else
                 !$omp parallel num_threads(omp_get_max_threads()),&
                 !$omp& default(shared),&
-                !$omp& private(thread_idx,polar,ii,loop,num_threads)
+                !$omp& private(thread_idx,polar,ii,loop,num_threads),&
+                !$omp& copyin(buffer_cnlm)
             
                 !* [0,num_threads-1]
                 thread_idx = omp_get_thread_num()
@@ -160,7 +161,7 @@ module features
                     call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar)
 
                     if(.not.allocated(polar)) then
-                        !* do atoms within local approximation
+                        !* no atoms within local approximation
                         X(:,ii) = 0.0d0
                     else
                         !* get type1 features
