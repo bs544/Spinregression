@@ -16,10 +16,12 @@ def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form=
     localX = local_features(cell=cell,atom_pos_uvw=atom_pos_uvw,xyz=xyz,nmax=nmax,lmax=lmax,\
         parallel=parallel,form=local_form)
 
-    globalX = global_features(cell=cell,atom_pos_uvw=atom_pos_uvw,nmax=nmax,lmax=lmax,form=global_form)
+    if global_form is not None:
+        globalX = global_features(cell=cell,atom_pos_uvw=atom_pos_uvw,nmax=nmax,lmax=lmax,form=global_form)
+        X = np.hstack(( localX , np.tile(globalX,(localX.shape[0],1)) ))
+    else:
+        X = localX
 
-    X = np.hstack(( localX , np.tile(globalX,(localX.shape[0],1)) ))
-    
     return X 
 
 def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="powerspectrum"):
