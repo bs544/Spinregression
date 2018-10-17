@@ -34,6 +34,9 @@ module config
         integer :: calc_type                                ! type of feature calc to perform
     end type bispect_param_type
 
+    !* scalar global vars
+    logical, public :: global_features = .false.            ! cnlm = 1/Natm sum_i Y_mli gni for global features 
+
     !* type instances
 
     type(config_type),public :: structure                   ! instance of configuration info
@@ -179,7 +182,7 @@ module config
         subroutine config_type__generate_neighbouring_polar(gridpoint,polar)
             !* Y_lm(theta,phi) = k_lm P_m(cos(theta)) * exp(i phi)
 
-            use, intrinsic :: ieee_arithmetic            
+            !use, intrinsic :: ieee_arithmetic            
 
             implicit none
 
@@ -207,16 +210,17 @@ module config
                 
                 if (sum(dr_vec**2).le.rcut2) then
                     cntr = cntr + 1
-                    polar_buffer(1,cntr) = dnrm2(3,dr_vec,1)
-                    polar_buffer(2,cntr) = dr_vec(3) / polar_buffer(1,cntr)
-                    if (.not.ieee_is_finite(polar_buffer(2,cntr))) then 
-                        !* r=0, use (phi,theta) = 0 in this case
-                        polar_buffer(2,cntr) = 0.0d0
-                        polar_buffer(3,cntr) = 0.0d0
-                    else     
-                        polar_buffer(2,cntr) = acos(polar_buffer(2,cntr))   ! inclination angle (theta)
-                        polar_buffer(3,cntr) = atan2(dr_vec(2),dr_vec(1))   ! azimuth angle     ( -pi <= phi <= pi )
-                    end if
+                    call cartesian_to_polar_array(dr_vec,cntr,polar_buffer)
+                    !polar_buffer(1,cntr) = dnrm2(3,dr_vec,1)
+                    !polar_buffer(2,cntr) = dr_vec(3) / polar_buffer(1,cntr)
+                    !if (.not.ieee_is_finite(polar_buffer(2,cntr))) then 
+                    !    !* r=0, use (phi,theta) = 0 in this case
+                    !    polar_buffer(2,cntr) = 0.0d0
+                    !    polar_buffer(3,cntr) = 0.0d0
+                    !else     
+                    !    polar_buffer(2,cntr) = acos(polar_buffer(2,cntr))   ! inclination angle (theta)
+                    !    polar_buffer(3,cntr) = atan2(dr_vec(2),dr_vec(1))   ! azimuth angle     ( -pi <= phi <= pi )
+                    !end if
 
                 end if 
             end do
@@ -226,6 +230,89 @@ module config
                 polar(:,:) = polar_buffer(:,1:cntr)
             end if
         end subroutine config_type__generate_neighbouring_polar
+                    
+        subroutine cartesian_to_polar_array(dr_vec,idx,polar_buffer)
+            use, intrinsic :: ieee_arithmetic            
+            
+            implicit none
+
+            real(8),intent(in) :: dr_vec(1:3)
+            integer,intent(in) :: idx
+            real(8),intent(inout) :: polar_buffer(:,:)
+
+            polar_buffer(1,idx) = dnrm2(3,dr_vec,1)
+            polar_buffer(2,idx) = dr_vec(3) / polar_buffer(1,idx)
+            if (.not.ieee_is_finite(polar_buffer(2,idx))) then 
+                !* r=0, use (phi,theta) = 0 in this case
+                polar_buffer(2,idx) = 0.0d0
+                polar_buffer(3,idx) = 0.0d0
+            else     
+                polar_buffer(2,idx) = acos(polar_buffer(2,idx))   ! inclination angle (theta)
+                polar_buffer(3,idx) = atan2(dr_vec(2),dr_vec(1))   ! azimuth angle     ( -pi <= phi <= pi )
+            end if
+        end subroutine cartesian_to_polar_array
+
+        subroutine config_type__get_global_polar(polar)
+            ! get all polar coordinates for global features, involves 
+            ! sum_{local_atoms} sum_{neighbours to local atom}
+            implicit none
+
+            !* args
+            real(8),intent(inout),allocatable :: polar(:,:)
+
+            !* scratch
+            real(8),allocatable :: local_cartesians(:,:)
+            integer :: dim(1:2),natm,cntr,ii,jj
+            real(8) :: rcut2,dr2,amin,dr_vec(1:3),drii(1:3)
+            real(8),allocatable :: scratch_polar(:,:)
+
+            !* [3,natm]
+            dim = shape(structure%local_positions)
+            natm = dim(2)
+
+            !* convert fractional local coordinates to cartesian
+            allocate(local_cartesians(1:3,1:natm))
+            call dgemm('n','n',3,natm,3,1.0d0,structure%cell,3,structure%local_positions,3,0.0d0,&
+            &local_cartesians,3)
+
+            !* max possible number of interactions
+            allocate(scratch_polar(1:3,1:natm*(structure%nall-1)))
+
+
+            !* max distance
+            rcut2 = bispect_param%rcut**2
+
+            !* min distance (don't want to count self interaction)
+            amin = dble(1e-8)**2
+
+            cntr = 0
+            loop_local_atoms: do ii=1,natm
+                drii = local_cartesians(:,ii)
+
+                loop_nonlocal_atoms: do jj=1,structure%nall
+                    !* cartesian displacement
+                    dr_vec = structure%all_positions(:,jj) - drii
+
+                    dr2 = sum(dr_vec**2)
+        
+                    if ((dr2.le.rcut2).and.(dr2.gt.amin)) then
+                        !* valid local interaction
+                        cntr = cntr + 1
+
+                        !* cartesians to polar
+                        call cartesian_to_polar_array(dr_vec,cntr,scratch_polar)
+                    end if
+                end do loop_nonlocal_atoms
+            end do loop_local_atoms
+            
+            if (cntr.gt.0) then
+                if (allocated(polar)) then
+                    deallocate(polar)
+                end if
+                allocate(polar(3,cntr))
+                polar(:,:) = scratch_polar(:,1:cntr)
+            end if
+        end subroutine config_type__get_global_polar
 
         subroutine config_type__wrap_atom_positions()
             ! wrap fractional coordinates of atoms to within [0,1]

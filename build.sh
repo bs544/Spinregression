@@ -22,8 +22,9 @@ do
     gfortran -c $file".f90" $FFLAGS
 done
 
-functions_to_expose="calculate"
+functions_to_expose="calculate_local"
 functions_to_expose+=" check_cardinality"
+functions_to_expose+=" calculate_global"
 modules_to_expose="features.f90"
 
 # remove this line on Cottrell

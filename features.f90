@@ -46,7 +46,7 @@ module features
             check_cardinality = res
         end function check_cardinality
 
-        subroutine calculate(cell,atom_positions,grid_coordinates,rcut,parallel,&
+        subroutine calculate_local(cell,atom_positions,grid_coordinates,rcut,parallel,&
         &lmax,nmax,calc_type,X)
             ! Compute bispectrum features as in [1]
             !
@@ -171,7 +171,67 @@ module features
                 
                 !$omp end parallel
             end if            
-        end subroutine calculate
+        end subroutine calculate_local
+
+        subroutine calculate_global(cell,atom_positions,rcut,lmax,nmax,&
+        &calc_type,X)
+            ! Compute global features as
+            ! cnlm = \sum_i \sum_neighbours_j gn(drij)Y_ml()
+            use omp_lib
+
+            implicit none
+
+            real(8),intent(in) :: atom_positions(:,:),rcut,cell(1:3,1:3)
+            integer,intent(in) :: lmax,nmax,calc_type
+            real(8),intent(inout) :: X(:)
+
+            !* scratch
+            integer :: dim_2(1:2),dim_1(1:1),natm
+            real(8),allocatable :: polar(:,:),neigh_images(:,:)
+
+            !* cnlm normalized by 1/natm
+            global_features = .true.
+
+            dim_1 = shape(X)
+            dim_2 = shape(atom_positions)
+
+            !* atoms in local cell
+            natm = dim_2(2)
+
+            if (dim_1(1).ne.check_cardinality(lmax,nmax,calc_type)) then
+                call error_message("calculate_global","shape mismatch between output array and input shape")
+            end if
+
+            !* calc type
+            call bispect_param_type__set_calc_type(bispect_param,calc_type)
+
+            !* interaction cut off
+            call bispect_param_type__set_rcut(bispect_param,rcut)
+
+            !* set nmax,lmax defining power/bispectrum
+            call bispect_param_type__set_ln(bispect_param,lmax,nmax)
+
+            !* set local cell info
+            call config_type__set_cell(cell)
+            call config_type__set_local_positions(atom_positions)
+
+            !* fetch relevant images
+            call find_neighbouring_images(neigh_images)
+
+            !* generate ultracell
+            call config_type__generate_ultracell(neigh_images)
+
+            !* remove redundancy
+            call init_buffer_all_general()
+       
+            !* get polar coordinates of all interactions
+            call config_type__get_global_polar(polar)
+
+            !* compute global features
+            call features_bispectrum_type1(polar,X)
+        end subroutine calculate_global
+
+
 
         subroutine features_bispectrum_type1_deprecated(polar,x)
             ! concacenation order:
@@ -373,7 +433,7 @@ module features
             !* scratch
             integer :: dim(1:2),ii,mm,ll
             real(8),allocatable :: cos_theta(:)
-            real(8) :: cos_m,sin_m,const_ml
+            real(8) :: cos_m,sin_m
 
             dim = shape(polars)
             allocate(cos_theta(1:dim(2)))
@@ -599,7 +659,7 @@ module features
             call init_radial_g(polar)
 
             !* compute cnlm
-            call calc_cnlm(polar)
+            call calc_cnlm()
         end subroutine init_buffer_all_polar
 
         real(8) function spherical_harm_const__sub1(mm,ll)
@@ -722,11 +782,12 @@ module features
             ddot_wrapper = res2
         end function ddot_wrapper
 
-        subroutine calc_cnlm(polar)
+        subroutine calc_cnlm()
             ! compute cnlm for given density point
             implicit none
-            real(8) :: polar(:,:)
+            real(8) :: invn
             integer :: lmax,mm,ll,nn,dim(1:3),ii,natm
+            integer :: dim_2(1:2)
             complex(8) :: res,tmp
 
 
@@ -753,6 +814,21 @@ module features
                     end do
                 end do
             end do
+
+            if (global_features) then
+                dim_2 = shape(structure%local_positions)
+
+                !* cnlm = 1/natm sum_{local_atoms} sum_{neighbours_to_local_atom} Y_ml gn
+                invn = 1.0d0/dble(dim_2(2))
+
+                do nn=1,bispect_param%nmax
+                    do ll=0,lmax
+                        do mm=-ll,ll
+                            buffer_cnlm(mm,ll,nn) = invn * buffer_cnlm(mm,ll,nn)
+                        end do
+                    end do
+                end do
+            end if                
         end subroutine calc_cnlm
 
         subroutine init_buffer_factorial()
