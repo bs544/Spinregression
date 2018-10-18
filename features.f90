@@ -82,6 +82,9 @@ module features
             !* openmp
             integer :: thread_idx,num_threads
 
+            !* do not normalize cnlm by 1/N
+            global_features = .false.
+
             !===============!
             !* arg parsing *!
             !===============!
