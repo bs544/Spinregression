@@ -31,8 +31,10 @@ class PCA():
 
         # sort in descending eigenvalue order
         idx = np.argsort(eigval)[::-1]
-        eigval = eigval[idx]
-        eigvec = eigvec[idx]
+
+        # covariance matrices are positive semidefinite -> eigenvalues/vecotors are real
+        eigval = np.asarray(np.real(eigval[idx]),dtype=np.float64) 
+        eigvec = np.asarray(np.real(eigvec[idx]),dtype=np.float64)
 
         try:
             # identify which eigenvalue completes necessary explained variance
