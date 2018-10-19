@@ -125,7 +125,7 @@ class generate_data():
     def _calculate_features(self,gip):
         X_local,X_global,y,natms = None,None,None,np.zeros(len(gip.supercells),dtype=int)
         
-        for ii,_conf in enumerate([gip.supercells[0],gip.supercells[0]]):
+        for ii,_conf in enumerate(gip):
             # choose subset of Ntot grid poitns
             Ntot = _conf["edensity"]["xyz"].shape[0]
             if np.isclose(self.train_frac,1.0):
@@ -164,6 +164,11 @@ class generate_data():
         return X_local,X_global,y,natms
 
     def predict(self,gip):
+        """
+        Given a class with attribute supercells, itself a list of a different 
+        per-configuration class, output the reduced descriptor
+        """
+
         # _calculate_features takes data selection from self.train_frac
         tmp = self.train_frac
         self.train_frac = 1.0
