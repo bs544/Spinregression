@@ -1,10 +1,21 @@
 import numpy as np
+import pickle
+import os
 from features.util import format_data
 from features.bispectrum import local_features,global_features
 
 class PCA():
     def __init__(self,explained_variance=0.99):
         self._set_explained_variance(explained_variance)
+
+    def clear_unecessary_data(self):
+        """
+        clear uncessary data when making predictions only
+        """
+        try:
+            del self.formatted_data.xs
+            del self.formatted_data.xs_standardized
+        except AttrubuteError: pass
 
     def _set_explained_variance(self,explained_variance):
         """
@@ -61,19 +72,32 @@ class PCA():
 
 
 class generate_data():
-    def __init__(self,train_frac,nmax,lmax,rcut,local_form="powerspectrum",global_form="powerspectrum",\
-    explained_variance=0.99,parallel=True):
+    def __init__(self,train_frac=1.0,nmax=6,lmax=6,rcut=6.0,local_form="powerspectrum",global_form="powerspectrum",\
+    explained_variance=0.99,parallel=True,load=None):
         """
         type(gip) = parsers.GeneralInputParser
         """
-        self._set_train_frac(train_frac)
-        self._set_nmax(nmax)
-        self._set_lmax(lmax)
-        self._set_rcut(rcut)
-        self._set_local_form(local_form)
-        self._set_global_form(global_form)
-        self._set_explained_variance(explained_variance)
-        self._set_parallel(parallel)
+        # attributes necessary to make predictions
+        self.attributes = ["nmax","lmax","rcut","local_form","global_form","local_pca","global_pca"]
+
+        if load is None:
+            self._set_train_frac(train_frac)
+            self._set_nmax(nmax)
+            self._set_lmax(lmax)
+            self._set_rcut(rcut)
+            self._set_local_form(local_form)
+            self._set_global_form(global_form)
+            self._set_explained_variance(explained_variance)
+            self._set_parallel(parallel)
+        else:
+            if not os.path.exists(load):
+                raise GeneralError("generate_data file {} not found".format(load))                
+
+            # load attributes from disk
+            self.load(load)
+
+            # need a few extra attributes
+            self._set_parallel(parallel)
 
     def _set_train_frac(self,train_frac):
         self.train_frac = train_frac
@@ -91,6 +115,36 @@ class generate_data():
         self.explained_variance = explained_variance
     def _set_parallel(self,parallel):
         self.parallel = parallel
+
+    def save(self,fname):
+        """
+        save everything needed to run a prediction from disk
+        """
+        # don't need to store training data
+        for _attr in ["local_pca","global_pca"]:
+            if getattr(self,_attr) is not None:
+                getattr(self,_attr).clear_unecessary_data()
+
+        saveme = {}
+        for _attr in self.attributes:
+            saveme.update({_attr:getattr(self,_attr)})
+        with open(fname,"wb") as f:
+            pickle.dump(saveme,f)
+        f.close()            
+
+    def load(self,fname):
+        """
+        load everything necessary to make predictions
+        """
+        with open(fname,"rb") as f:
+            data = pickle.load(f)
+        f.close()  
+
+        if not all([True if _attr in data.keys() else False for _attr in self.attributes]):
+            raise GeneralError("necessary attribute not found in pickle file : {}".format(data.keys()))
+
+        for _attr in data.keys():
+            setattr(self,_attr,data[_attr])
 
     def fit(self,gip):    
         """
@@ -169,13 +223,17 @@ class generate_data():
         per-configuration class, output the reduced descriptor
         """
 
-        # _calculate_features takes data selection from self.train_frac
-        tmp = self.train_frac
+        try:
+            # _calculate_features takes data selection from self.train_frac
+            tmp = self.train_frac
+        except AttributeError: pass            
         self.train_frac = 1.0
 
         X_local,X_global,y ,natms= self._calculate_features(gip)
 
-        self.train_frac = tmp
+        try:
+            self.train_frac = tmp
+        except NameError: pass
 
         X_local = self.local_pca.predict(X_local)
         if self.global_form is not None:
