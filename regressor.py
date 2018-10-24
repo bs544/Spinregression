@@ -31,7 +31,7 @@ class regressor():
         """
         self.supp_methods = ["nonbayes","nonbayes_dropout","vi_bayes"]
       
-        if load is not None:
+        if load is None:
             self.set_method(method)
             self.set_layers(layers)
             self.set_Nensemble(Nensemble)
