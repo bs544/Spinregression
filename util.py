@@ -33,9 +33,14 @@ class format_data():
             self.input_mean = np.mean(self.xs,axis=0)
             self.input_std = np.std(self.xs,axis=0)
 
-            # check for nonactive bases and avoid divide by zero
-            idx = np.where(self.input_std<1e-15)[0]
-            self.input_std[idx] = 1.0
+            if not isinstance(self.input_std,(list,np.ndarray)):
+                # X is a float
+                if self.input_std<1e-15:
+                    self.input_std = 1.0
+            else:
+                # check for nonactive bases and avoid divide by zero
+                idx = np.where(self.input_std<1e-15)[0]
+                self.input_std[idx] = 1.0
 
             # 0 mean, 1 standard deviation
             self.xs_standardized = self.get_xs_standardized(self.xs)
@@ -61,7 +66,6 @@ class format_data():
         return standardized input
         """
         if self.input_mean is None or self.input_std is None: raise GeneralError("Must set x data before making predictions")
-        
         res = (xs - self.input_mean)/self.input_std
         if len(res.shape)==1:
             # need (N,1) rather than (N,)

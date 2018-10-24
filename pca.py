@@ -65,9 +65,11 @@ class PCA():
         return self.predict(X)
 
     def predict(self,X):
+        if len(X.shape)==1:
+            X = np.reshape(X,(1,-1))
+
         # mean = 0, std = 1 where applicable
         xnorm = self.formatted_data.get_xs_standardized(X)
-
         return np.dot(xnorm,self.W.T)
 
 
@@ -152,7 +154,11 @@ class generate_data():
         """
 
         X_local,X_global,y,natms = self._calculate_features(gip)
-        
+       
+        if len(X_global.shape)==1:
+            # need to check if only one structure is in training set for global descriptor PCA
+            X_global = np.reshape(X_global,(1,-1))
+
         # local PCA 
         self.local_pca = PCA(explained_variance=self.explained_variance) 
         X_local = self.local_pca.fit(X_local)
@@ -162,6 +168,9 @@ class generate_data():
             self.global_pca = None
             X = X_local
         else:
+            if X_global.shape[0]==1:
+                raise GeneralError("Cannot use PCA on global descriptors when only 1 structure is in trainin set")
+
             self.global_pca = PCA(explained_variance=self.explained_variance)
             X_global = self.global_pca.fit(X_global)
 
