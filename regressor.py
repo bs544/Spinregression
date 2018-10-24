@@ -15,7 +15,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 class regressor():
     def __init__(self,method="nonbayes",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
-    batch_size=1.0,dtype=tf.float64,method_args={}):
+    batch_size=1.0,dtype=tf.float64,method_args={},load=None):
         """
         Interface to regression using heuristic ensembles or VI Bayes. In both
         cases, uncertainties are made by an ensemble of nets or repeated 
@@ -30,15 +30,18 @@ class regressor():
         modeling, inference, and criticism
         """
         self.supp_methods = ["nonbayes","nonbayes_dropout","vi_bayes"]
-        
-        self.set_method(method)
-        self.set_layers(layers)
-        self.set_Nensemble(Nensemble)
-        self.set_maxiter(maxiter)
-        self.set_method_args(method_args)
-        self.set_activation(activation)
-        self.set_batch_size(batch_size)
-        self.set_dtype(dtype)
+      
+        if load is not None:
+            self.set_method(method)
+            self.set_layers(layers)
+            self.set_Nensemble(Nensemble)
+            self.set_maxiter(maxiter)
+            self.set_method_args(method_args)
+            self.set_activation(activation)
+            self.set_batch_size(batch_size)
+            self.set_dtype(dtype)
+        else:
+            self.load(load)
 
     def set_method(self,method):
         """
