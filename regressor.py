@@ -217,8 +217,10 @@ class regressor():
             self.session["tf_session"].run(tf.assign(model.output_mean,self.train_data.target_mean))
             self.session["tf_session"].run(tf.assign(model.output_std,self.train_data.target_std))
 
-        for itr in range(self.maxiter):
-            for model in self.session["ensemble"]:
+        #for itr in range(self.maxiter):
+        #    for model in self.session["ensemble"]:
+        for model in self.session["ensemble"]:
+            for itr in range(self.maxiter):
                 # can train on distinct mini batches for each ensemble
                 x,y = self.train_data.next_batch()
         
@@ -232,6 +234,7 @@ class regressor():
                     _, nll = self.session["tf_session"].run([model.train_op, model.nll], feed)
 
                 if np.mod(itr,100)==0:
+                    # decrease learning rate
                     self.session["tf_session"].run(tf.assign(model.lr,\
                             self.method_args["learning_rate"]*(self.method_args["decay_rate"]**(itr/100))))
         

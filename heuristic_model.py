@@ -11,15 +11,22 @@ import numpy as np
 class MLPGaussianRegressor():
 
     def __init__(self, args, sizes, model_scope):
+        # activation func
         if args.activation=="logistic":
             activation_func = tf.nn.sigmoid
         elif args.activation=="relu":
-            activation_func = tf.nn.reul
+            activation_func = tf.nn.relu
         elif args.activation=="tanh":
             activation_func = tf.nn.tanh
-       
+      
+        # when alpha = 1, adversarial training contribution is 0
+        adversarial_training = not np.isclose(args.alpha,1.0)
+
+
+        # 32 and 64 bit support
         dtype=args.dtype
 
+        # x,y placeholders
         self.input_data  = tf.placeholder(dtype, [None, sizes[0]])
         self.target_data = tf.placeholder(dtype, [None, 1])
 
@@ -48,40 +55,51 @@ class MLPGaussianRegressor():
 
         self.mean, self.raw_var = tf.split(self.output, [1,1], axis=1)
 
-        # Output transform
+        # Output transform - WHY?
         self.mean = self.mean * self.output_std + self.output_mean
-        self.var = (tf.log(1 + tf.exp(self.raw_var)) + 1e-6) * (self.output_std**2)
+        
+        # ensure positivity by taking softplus (with small addition for numerical stability)
+        self.var = (tf.nn.softplus(self.raw_var) + 1e-6) * (self.output_std**2)
+        #self.var = (tf.log(1 + tf.exp(self.raw_var)) + 1e-6) * (self.output_std**2)
 
+        # total loss (no regulariation) , sum of log (iid. heteroscedastic errors)
         def gaussian_nll(mean_values, var_values, y):
             y_diff = tf.subtract(y, mean_values)
             tmp1 = 0.5*tf.reduce_mean(tf.log(var_values))
             tmp2 = 0.5*tf.reduce_mean(tf.div(tf.square(y_diff), var_values)) 
-            tmp3 = 0.5*tf.log(tf.cast(2*np.pi,dtype=dtype))
-            return tmp1 + tmp2 + tmp3
+            #tmp3 = 0.5*tf.log(tf.cast(2*np.pi,dtype=dtype))
+            return tmp1 + tmp2 #+ tmp3
 
+        # objective function (conditional heterscedastic error dist)
         self.nll = gaussian_nll(self.mean, self.var, self.target_data)
-
-        self.nll_gradients = tf.gradients(args.alpha * self.nll, self.input_data)[0]
-
-        self.adversarial_input_data = tf.add(self.input_data, args.epsilon * tf.sign(self.nll_gradients))
-
-        x_at = self.adversarial_input_data
-        for i in range(0, len(sizes)-2):
-            x_at = activation_func(tf.add(tf.matmul(x_at, self.weights[i]), self.biases[i]))
-
-        output_at = tf.add(tf.matmul(x_at, self.weights[-1]), self.biases[-1])
-
-        mean_at, raw_var_at = tf.split(output_at, [1, 1], axis=1)
-
-        # Output transform
-        mean_at = mean_at * self.output_std + self.output_mean
-        var_at = (tf.log(1 + tf.exp(raw_var_at)) + 1e-6) * (self.output_std**2)
-
-        self.nll_at = gaussian_nll(mean_at, var_at, self.target_data)
 
         tvars = tf.trainable_variables()
 
-        self.gradients = tf.gradients(args.alpha * self.nll + (1 - args.alpha) * self.nll_at, tvars)
+        if adversarial_training:
+            # need grad_x loss to generate adversarial examples
+            self.nll_gradients = tf.gradients(args.alpha * self.nll, self.input_data)[0]
+            
+            self.adversarial_input_data = tf.add(self.input_data, args.epsilon * tf.sign(self.nll_gradients))
+
+            x_at = self.adversarial_input_data
+            for i in range(0, len(sizes)-2):
+                x_at = activation_func(tf.add(tf.matmul(x_at, self.weights[i]), self.biases[i]))
+
+            output_at = tf.add(tf.matmul(x_at, self.weights[-1]), self.biases[-1])
+
+            mean_at, raw_var_at = tf.split(output_at, [1, 1], axis=1)
+
+            # Output transform
+            mean_at = mean_at * self.output_std + self.output_mean
+            var_at = (tf.log(1 + tf.exp(raw_var_at)) + 1e-6) * (self.output_std**2)
+
+            self.nll_at = gaussian_nll(mean_at, var_at, self.target_data)
+
+
+            self.gradients = tf.gradients(args.alpha * self.nll + (1 - args.alpha) * self.nll_at, tvars)
+        else:
+            self.gradients = tf.gradients(self.nll , tvars)
+            
 
         self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, args.grad_clip)
 
