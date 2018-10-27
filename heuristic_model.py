@@ -91,7 +91,8 @@ class MLPGaussianRegressor():
 
             # Output transform
             mean_at = mean_at * self.output_std + self.output_mean
-            var_at = (tf.log(1 + tf.exp(raw_var_at)) + 1e-6) * (self.output_std**2)
+            var_at = (tf.nn.softplus(raw_var_at) + 1e-6) * (self.output_std**2)
+            #var_at = (tf.log(1 + tf.exp(raw_var_at)) + 1e-6) * (self.output_std**2)
 
             self.nll_at = gaussian_nll(mean_at, var_at, self.target_data)
 
