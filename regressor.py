@@ -242,7 +242,7 @@ class regressor():
                         feed.update({model.dr : self.method_args["keep_prob"]})
 
                     if self.method == "nonbayes":
-                        _, nll, m, v = self.session["tf_session"].run([model.train_op, model.nll, model.mean, model.var], feed)
+                        _ = self.session["tf_session"].run([model.train_op], feed)
                     if self.method == "nonbayes-mdn":
                         _  = self.session["tf_session"].run([model.train_op], feed)
                     elif self.method == "nonbayes_dropout":
@@ -299,7 +299,7 @@ class regressor():
             K = mu.shape[1]
 
             # en_var_i = sum_k pi_ik * [ var_ik + (mu_ik - en_mean_i)**2 ]
-            en_var = np.dot(var + np.square( mu - np.tile(en_mean,(K,1)).T ) , pi.T)
+            en_var = np.diag(np.dot(var + np.square( mu - np.tile(en_mean,(K,1)).T ) , pi.T))
         else: raise NotImplementedError
 
         return en_mean,en_var
