@@ -293,13 +293,23 @@ class regressor():
             mu,var,pi = self.session["tf_session"].run([model.mean,model.var,model.mix_coeff],feed)
 
             # expected meanm en_mean_i = sum_k mu_ik pi_ik (weighted sum over mixture components)
-            en_mean = np.diag(np.dot(mu,pi.T))
+            #en_mean = np.diag(np.dot(mu,pi.T))
+            en_mean = np.einsum("ij,ij->i",mu,pi)
+
+            #np.testing.assert_array_almost_equal(en_mean,np.diag(np.dot(mu,pi.T)))
 
             # number of components in mixture
             K = mu.shape[1]
 
+            # [ var_ik + (mu_ik - en_mean_i)**2 ]
+            var_term = var + np.square(mu - np.tile(en_mean,(K,1)).T)
+
             # en_var_i = sum_k pi_ik * [ var_ik + (mu_ik - en_mean_i)**2 ]
-            en_var = np.diag(np.dot(var + np.square( mu - np.tile(en_mean,(K,1)).T ) , pi.T))
+            #en_var = np.diag(np.dot(var + np.square( mu - np.tile(en_mean,(K,1)).T ) , pi.T))
+            en_var = np.einsum("ij,ij->i",var_term,pi)
+            
+            #np.testing.assert_array_almost_equal(en_var,\
+            #        np.diag(np.dot(var + np.square( mu - np.tile(en_mean,(K,1)).T ) , pi.T)))
         else: raise NotImplementedError
 
         return en_mean,en_var
