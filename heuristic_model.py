@@ -17,7 +17,6 @@ class MLPDensityMixtureRegressor():
             return tf.divide( x , tf.reshape(tf.tile(tf.expand_dims(tf.reduce_sum(x,axis=1), -1),  [1, K]), tf.shape(x)) )
         def mdn_loss(target_values,mean_values,var_values,mix_values,K):
             # mu_nk - t_n
-           # exp_term = mean_values - tf.reshape(tf.tile(tf.expand_dims(target_values, -1),  [1, K]), tf.shape(mean_values))
             exp_term = mean_values - tf.reshape(tf.tile(target_values,  [1, K]), tf.shape(mean_values))
 
             # -0.5*(mu_nk - t_n)**2 / var_nk
