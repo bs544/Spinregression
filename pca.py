@@ -120,7 +120,9 @@ class generate_data():
 
     def save(self,fname):
         """
-        save everything needed to run a prediction from disk
+        save everything needed to run a prediction from disk. If pckl in suffix
+        of fname, write fname exactly. Otherwise, write fname/pca-fname.pckl to
+        store in single model directory shared between pca and regressor 
         """
         # don't need to store training data
         for _attr in ["local_pca","global_pca"]:
@@ -130,15 +132,32 @@ class generate_data():
         saveme = {}
         for _attr in self.attributes:
             saveme.update({_attr:getattr(self,_attr)})
-        with open(fname,"wb") as f:
+        
+        if fname.split('.')[-1]=="pckl":
+            save_file = fname
+        else:
+            save_file = "{}/pca-{}.pckl".format(fname,fname)
+       
+        if not os.path.exists(fname):
+            os.mkdir(fname)
+
+        with open(save_file,"wb") as f:
             pickle.dump(saveme,f)
         f.close()            
 
     def load(self,fname):
         """
-        load everything necessary to make predictions
+        load everything necessary to make predictions. Can give explicit file
+        or directory with presumed format for pca pckl file:
+
+        when fname = dir, open dir/pca-dir.pckl
         """
-        with open(fname,"rb") as f:
+        if os.path.isdir(fname):
+            open_file = "{}/pca-{}.pckl".format(fname,fname)
+        else:
+            open_file = fname
+
+        with open(open_file,"rb") as f:
             data = pickle.load(f)
         f.close()  
 

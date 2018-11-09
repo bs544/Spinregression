@@ -12,7 +12,7 @@ class MLPDensityMixtureRegressor():
 
     def __init__(self, args, sizes, model_scope):
         def softplus_transform(x):
-            return tf.add( tf.nn.softplus(x) , tf.fill(dims=tf.shape(x),value=tf.cast(1e-6,dtype=x.dtype)) )
+            return tf.add( tf.nn.softplus(x) , tf.fill(dims=tf.shape(x),value=tf.cast(1e-8,dtype=x.dtype)) )
         def normalize_transform(x,K):
             return tf.divide( x , tf.reshape(tf.tile(tf.expand_dims(tf.reduce_sum(x,axis=1), -1),  [1, K]), tf.shape(x)) )
         def mdn_loss(target_values,mean_values,var_values,mix_values,K):
@@ -24,6 +24,9 @@ class MLPDensityMixtureRegressor():
 
             # sum_k pi_nk e^(-0.5 (mu_nk-t_n)**2 / var_nk) * var_nk**-0.5
             ln_term = tf.reduce_sum(tf.multiply(mix_values , tf.divide( tf.exp(exp_term) , tf.sqrt(var_values) ) ) , axis=1)
+
+            # reduce affect of numerical noise
+            ln_term += tf.fill(dims=tf.shape(ln_term),value=tf.cast(1e-8,dtype=x.dtype))
 
             # mixture density loss
             loss = -tf.reduce_sum(tf.log(ln_term))
@@ -132,11 +135,23 @@ class MLPDensityMixtureRegressor():
             self.gradients = tf.gradients(self.loss_value , tvars)
             
 
-        self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, args.grad_clip)
+        #self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, args.grad_clip)
 
-        optimizer = tf.train.RMSPropOptimizer(self.lr)
+        # set method optimizer
+        self.optimizer = self.set_optimizer(args)
 
-        self.train_op = optimizer.apply_gradients(zip(self.clipped_gradients, tvars))
+        #self.train_op = optimizer.apply_gradients(zip(self.clipped_gradients, tvars))
+        self.train_op = self.optimizer.apply_gradients(zip(self.gradients, tvars))
+
+    def set_optimizer(self,args):
+        if args.opt_method == "rmsprop":
+            optimizer = tf.train.RMSPropOptimizer(self.lr)
+        elif args.opt_method == "adam":
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
+        elif args.opt_method == "gradientdescent":
+            optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.lr)
+        else: raise NotImplementedError
+        return optimizer
 
 class MLPGaussianRegressor():
 
@@ -164,8 +179,8 @@ class MLPGaussianRegressor():
             self.lr = tf.Variable(args.learning_rate, trainable=False, name='learning_rate',dtype=dtype)
 
         with tf.variable_scope(model_scope+'target_stats'):
-            self.output_mean = tf.Variable(0., trainable=False, dtype=dtype)
-            self.output_std = tf.Variable(0.1, trainable=False, dtype=dtype)
+            self.output_mean = tf.Variable(0., trainable=False, dtype=dtype,name="mean")
+            self.output_std = tf.Variable(0.1, trainable=False, dtype=dtype,name="std")
 
         self.weights = []
         self.biases = []
@@ -195,19 +210,19 @@ class MLPGaussianRegressor():
         # total loss (no regulariation) , sum of log (iid. heteroscedastic errors)
         def gaussian_nll(mean_values, var_values, y):
             y_diff = tf.subtract(y, mean_values)
-            tmp1 = 0.5*tf.reduce_mean(tf.log(var_values))
-            tmp2 = 0.5*tf.reduce_mean(tf.div(tf.square(y_diff), var_values)) 
+            tmp1 = tf.reduce_mean(tf.log(var_values))
+            tmp2 = tf.reduce_mean(tf.div(tf.square(y_diff), var_values)) 
             #tmp3 = 0.5*tf.log(tf.cast(2*np.pi,dtype=dtype))
             return tmp1 + tmp2 #+ tmp3
 
         # objective function (conditional heterscedastic error dist)
-        self.nll = gaussian_nll(self.mean, self.var, self.target_data)
+        self.loss_value = gaussian_nll(self.mean, self.var, self.target_data)
 
         tvars = tf.trainable_variables()
 
         if adversarial_training:
             # need grad_x loss to generate adversarial examples
-            self.nll_gradients = tf.gradients(args.alpha * self.nll, self.input_data)[0]
+            self.nll_gradients = tf.gradients(args.alpha * self.loss_value, self.input_data)[0]
             
             self.adversarial_input_data = tf.add(self.input_data, args.epsilon * tf.sign(self.nll_gradients))
 
@@ -227,16 +242,26 @@ class MLPGaussianRegressor():
             self.nll_at = gaussian_nll(mean_at, var_at, self.target_data)
 
 
-            self.gradients = tf.gradients(args.alpha * self.nll + (1 - args.alpha) * self.nll_at, tvars)
+            self.gradients = tf.gradients(args.alpha * self.loss_value + (1 - args.alpha) * self.nll_at, tvars)
         else:
-            self.gradients = tf.gradients(self.nll , tvars)
+            self.gradients = tf.gradients(self.loss_value , tvars)
             
 
         self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, args.grad_clip)
 
-        optimizer = tf.train.RMSPropOptimizer(self.lr)
+        self.optimizer = self.set_optimizer(args)
 
-        self.train_op = optimizer.apply_gradients(zip(self.clipped_gradients, tvars))
+        self.train_op = self.optimizer.apply_gradients(zip(self.clipped_gradients, tvars))
+    
+    def set_optimizer(self,args):
+        if args.opt_method == "rmsprop":
+            optimizer = tf.train.RMSPropOptimizer(self.lr)
+        elif args.opt_method == "adam":
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
+        elif args.opt_method == "gradientdescent":
+            optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.lr)
+        else: raise NotImplementedError
+        return optimizer
 
 
 class MLPDropoutGaussianRegressor():
@@ -325,6 +350,9 @@ class MLPDropoutGaussianRegressor():
 
         self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, args.grad_clip)
 
-        optimizer = tf.train.RMSPropOptimizer(self.lr)
+        if args.opt_method == "rmsprop":
+            optimizer = tf.train.RMSPropOptimizer(self.lr)
+        elif args.opt_method == "adam":
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
 
         self.train_op = optimizer.apply_gradients(zip(self.clipped_gradients, tvars))

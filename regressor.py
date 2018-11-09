@@ -75,12 +75,15 @@ class regressor():
         """
         set method specific arguments
         """
-        default_values = {"nonbayes":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0},\
-                          "nonbayes-mdn":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,\
+        default_values = {"nonbayes":{"learning_rate":1e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0},\
+                          "nonbayes-mdn":{"learning_rate":1e-2,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,\
                                 "grad_clip":100.0},\
-                          "nonbayes_dropout":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,\
+                          "nonbayes_dropout":{"learning_rate":1e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,\
                           "grad_clip":100.0,"keep_prob":0.8},\
                           "vi_bayes":{}}
+
+        for _method in ["nonbayes","nonbayes-mdn","nonbayes_dropout"]:
+            default_values[_method].update({"opt_method":"rmsprop"})
 
         if any([_arg not in default_values[self.method].keys() for _arg in method_args.keys()]):
             raise GeneralError("unsupported key in {}".format(method_args.keys()))
@@ -90,7 +93,7 @@ class regressor():
             if _attr not in method_args.keys(): method_args.update({_attr:default_values[self.method][_attr]})
         
         self.method_args = method_args
-        
+    
     def set_activation(self,activation):
         """
         Set type of activation function to use for all nodes
@@ -197,7 +200,6 @@ class regressor():
         if self.method == "nonbayes-mdn":
             combine_args.update({"num_components":self.Nensemble})
 
-
         # a class with key,value as attribute name,value
         args = toy_argparse(combine_args)
 
@@ -219,7 +221,9 @@ class regressor():
 
         self.session["tf_session"] = tf.Session()
         self.session["tf_session"].run(tf.global_variables_initializer())
-        self.session["saver"] = tf.train.Saver(tf.global_variables())
+
+        # don't want momentum/history of weights from optimization
+        self.session["saver"] = tf.train.Saver([_v for _v in tf.global_variables() if "RMSProp" not in _v.name])
 
         for model in self.session["ensemble"]:
             self.session["tf_session"].run(tf.assign(model.output_mean,self.train_data.target_mean))
@@ -231,13 +235,14 @@ class regressor():
         #for itr in range(self.maxiter):
         #    for model in self.session["ensemble"]:
         for model in self.session["ensemble"]:
+            cntr = 0
             for batch_itr in range(num_minibatch):
                 # can train on distinct mini batches for each ensemble
                 x,y = self.train_data.next_batch()
                 feed = {model.input_data: x, model.target_data: y}
 
-                for itr in range(maxiter_per_minibatch):
-        
+                for cntr in range(maxiter_per_minibatch):
+
                     if self.method == "nonbayes_dropout":
                         feed.update({model.dr : self.method_args["keep_prob"]})
 
@@ -248,11 +253,27 @@ class regressor():
                     elif self.method == "nonbayes_dropout":
                         _, nll = self.session["tf_session"].run([model.train_op, model.nll], feed)
 
-                    if np.mod(itr,100)==0:
+                    cntr += 1
+                    if np.mod(cntr,100)==0:
                         # decrease learning rate
                         self.session["tf_session"].run(tf.assign(model.lr,\
-                                self.method_args["learning_rate"]*(self.method_args["decay_rate"]**(itr/100))))
-       
+                                self.method_args["learning_rate"]*(self.method_args["decay_rate"]**(cntr/100))))
+
+            if False:
+                # do final local gradient descent on full data set
+                model.set_optimizer(toy_argparse({"opt_method":"gradientdescent",\
+                        "learning_rate":self.method_args["learning_rate"]}))
+
+                feed = {model.input_data:self.train_data.xs_standardized,model.target_data : self.train_data.ys}
+
+                loss_before = self.session["tf_session"].run([model.loss_value],feed)
+                for cntr in range(self.maxiter):
+                    _ = self.session["tf_session"].run([model.train_op],feed)
+                
+                loss_after = self.session["tf_session"].run([model.loss_value],feed)
+
+                print("loss before = {} loss after = {}".format(loss_before,loss_after))
+
         # pass in standardized data
         pred_mean,pred_std = self._predict_nonbayes(self.train_data.xs_standardized,self.Nensemble)
         
@@ -265,7 +286,7 @@ class regressor():
             en_var = 0.0
             cntr = 0
 
-            for model in self.session["ensemble"]:
+            for ii,model in enumerate(self.session["ensemble"]):
                 if self.method == "nonbayes_dropout":
                     num_samples = Nsample
                 else:
@@ -279,9 +300,10 @@ class regressor():
                     mean,var = self.session["tf_session"].run([model.mean,model.var],feed)
                     en_mean += mean
                     en_var += var + mean**2
-                    
+                        
                     # count number of samples drawn
                     cntr += 1
+        
             en_mean /= cntr
             en_var = en_var/cntr - en_mean**2
         elif self.method == "nonbayes-mdn":
@@ -303,6 +325,8 @@ class regressor():
 
             # [ var_ik + (mu_ik - en_mean_i)**2 ]
             var_term = var + np.square(mu - np.tile(en_mean,(K,1)).T)
+            #var_term = var #+ np.square(mu - np.tile(en_mean,(K,1)).T)
+
 
             # en_var_i = sum_k pi_ik * [ var_ik + (mu_ik - en_mean_i)**2 ]
             #en_var = np.diag(np.dot(var + np.square( mu - np.tile(en_mean,(K,1)).T ) , pi.T))
@@ -346,6 +370,50 @@ class regressor():
         f.close()            
         self.session["saver"].save(self.session["tf_session"],"./{}/{}".format(prefix,prefix))
 
+        # save tf variables to numpy arrays for use with sklearn
+        self._save_tf_to_np(prefix)
+
+    def _save_tf_to_np(self,prefix):
+        # size of ensemble
+        Nens = len([_v for _v in tf.global_variables() if "MLP/weights_0:0" in _v.name and "RMSProp" not in _v.name])
+        
+        num_weight_layers = len([_v for _v in tf.global_variables() if "model0MLP/weights_" in _v.name \
+                and "RMSProp" not in _v.name]) 
+        
+        num_nodes = np.asarray([int(_v.shape[0]) for _v in tf.global_variables() if "model0MLP/weights_" in _v.name\
+                and "RMSProp" not in _v.name])
+        
+        order = np.asarray([int(_v.name.split(':')[0].split("weights_")[-1]) for _v in tf.global_variables() \
+            if "model0MLP/weights" in _v.name and "RMSProp" not in _v.name])
+        
+        idx = np.argsort(order)
+        
+        layer_units = np.asarray(list(num_nodes[idx]) + [2])
+        
+        hidden_layer_sizes = num_nodes[:-1]
+       
+        weights = [[None for jj in range(num_weight_layers)] for ii in range(Nens)]
+        biases =  [[None for jj in range(num_weight_layers)] for ii in range(Nens)]
+        preconditioning = [{"mean":None,"std":None} for ii in range(Nens)]
+        for ii in range(Nens):
+            for _var in preconditioning[ii]:
+                val = self.session["tf_session"].run([_v for _v in tf.global_variables() if \
+                        "model{}target_stats/{}".format(ii,_var) in _v.name])[0]
+                preconditioning[ii][_var] = val
+        
+            for ww in range(num_weight_layers):
+                weights[ii][ww] = self.session["tf_session"].run([_v for _v in tf.global_variables() \
+                        if "model{}MLP/weights_{}".format(ii,ww) in _v.name and "RMSProp" not in _v.name])[0]
+                biases[ii][ww]  = self.session["tf_session"].run([_v for _v in tf.global_variables() \
+                        if "model{}MLP/biases_{}".format(ii,ww) in _v.name and "RMSProp" not in _v.name])[0]
+        
+        data = {"preconditioning":preconditioning,"activation":self.activation,"hidden_layer_sizes":hidden_layer_sizes,\
+            "layer_units":layer_units,"weights":weights,"biases":biases,"Nensemble":Nens}
+        
+        with open("{}/netparams-{}.pckl".format(prefix,prefix),"wb") as f:
+            pickle.dump(data,f)
+        f.close()
+
     def _save_bayes(self,prefix):
         raise NotImplementedError
 
@@ -359,6 +427,8 @@ class regressor():
 
     def _load_bayes(self,prefix):
         raise NotImplementedError
+
+
 
 class GeneralError(Exception):
     pass

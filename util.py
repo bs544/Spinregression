@@ -81,9 +81,12 @@ class format_data():
 
         Ntrain = self.xs_standardized.shape[0]
 
-        # choose without replacement, no repeats
-        idx = np.random.choice(np.arange(Ntrain),size=int(self.batch_size*Ntrain),replace=False)
-
+        if np.isclose(self.batch_size,1):
+            idx = np.arange(Ntrain)
+        else:
+            # choose without replacement, no repeats
+            idx = np.random.choice(np.arange(Ntrain),size=int(self.batch_size*Ntrain),replace=False)
+        
         return self.xs_standardized[idx],self.ys[idx]
 
 class toy_argparse():
