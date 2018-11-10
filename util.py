@@ -1,4 +1,9 @@
 import numpy as np
+from features.powerspectrum_f90api import f90wrap_write_density_to_disk as f90_write_den
+
+class test_class():
+    def __init__(self):
+        pass
 
 class format_data():
     def __init__(self,X=None,y=None):
@@ -88,6 +93,26 @@ class format_data():
             idx = np.random.choice(np.arange(Ntrain),size=int(self.batch_size*Ntrain),replace=False)
         
         return self.xs_standardized[idx],self.ys[idx]
+
+def tapering(x,xcut,scale):
+    xprime = x-xcut/scale
+
+    if not isinstance(x,(list,np.ndarray)):
+        xprime = np.asarray([xprime])
+    # places need to zero data
+    idx = np.where(xprime>0.0)[0]
+
+    xprime4 = xprime**4
+
+    res = xprime4 / (1.0 + xprime4)
+    res[idx] = 0.0
+    
+    if not isinstance(x,(list,np.ndarray)):
+        res = res[0]
+    return res
+
+def write_density_to_disk(density,fft_grid,fname):
+    f90_write_den(density,fft_grid[0],fft_grid[1],fft_grid[2],fname)
 
 class toy_argparse():
     def __init__(self,args):

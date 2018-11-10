@@ -8,6 +8,8 @@ module utility
     external :: dgetrf
     external :: dgetri
 
+    integer,parameter :: dp=selected_real_kind(15,300)
+
     contains
         logical function cg_nonzero(ll,ll_1,ll_2)
             ! get l,l1,l2 values where CG has nonzero coefficients
@@ -379,4 +381,36 @@ module utility
             end do
             bounds(1:2) = all_bounds(1:2,thread_idx+1)
         end subroutine load_balance_alg_1
+
+        subroutine write_density_to_disk(density,nx_fine,ny_fine,nz_fine,filename)
+            implicit none
+
+            real(dp),intent(in) :: density(:)
+            character(len=*),intent(in) :: filename
+            integer,intent(in) :: nx_fine,ny_fine,nz_fine
+
+            complex(dp),allocatable :: charge_col(:)
+            integer :: iostat,Nxy,offset,idx,nx,ny,nz
+
+            allocate(charge_col(nz_fine))
+
+            open(file=filename,unit=1,form="unformatted")
+
+            Nxy = nx_fine*ny_fine
+
+            do nx=1,nx_fine
+                do ny=1,ny_fine
+                    offset = nx + nx_fine*(ny-1)
+
+                    do nz=1,nz_fine
+                        ! idx = nx + nx_fine*(ny-1) + nx_fine*ny_fine*(nz-1)
+                        idx = offset + Nxy*(nz-1)
+
+                        charge_col(nz) = cmplx(density(idx),0.0d0,kind=dp)
+                    end do
+                    write(1,iostat=iostat) nx,ny,charge_col 
+                end do
+            end do
+            close(1)
+        end subroutine write_density_to_disk
 end module utility

@@ -207,7 +207,7 @@ class generate_data():
     def _calculate_features(self,gip):
         X_local,X_global,y,natms = None,None,None,np.zeros(len(gip.supercells),dtype=int)
         
-        for ii,_conf in enumerate(gip):
+        for ii,_conf in enumerate(gip.supercells):
             # choose subset of Ntot grid poitns
             Ntot = _conf["edensity"]["xyz"].shape[0]
             if np.isclose(self.train_frac,1.0):

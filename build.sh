@@ -25,7 +25,8 @@ done
 functions_to_expose="calculate_local"
 functions_to_expose+=" check_cardinality"
 functions_to_expose+=" calculate_global"
-modules_to_expose="features.f90"
+functions_to_expose+=" write_density_to_disk"
+modules_to_expose="features.f90 utility.f90"
 
 # remove this line on Cottrell
 export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libgfortran.so.3
