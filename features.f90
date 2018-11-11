@@ -412,6 +412,7 @@ module features
             call init_buffer_radial_phi_Nalpha()
             call init_buffer_radial_basis_overlap()
             call init_buffer_cnlm_mem()
+            call init_buffer_spherical_harm_plgndr()
 
             if (bispect_param%calc_type.eq.1) then
                 !* CB coefficients repeatedly use factorial evaluation
@@ -420,13 +421,38 @@ module features
                 !* bispectrum needs Clebsch-Gordan coefficients
                 call init_buffer_cg_coeff()
        
-                !* only |l1+l2| <= l <= l1+l2 are nonzero
+                !* only |l1+l2| <= l <= l1+l2 and l+l1+2=even are nonzero
                 call init_buffer_lvalues()
             end if
         end subroutine init_buffer_all_general
 
+        subroutine init_buffer_spherical_harm_plgndr()
+            implicit none
+
+            integer :: mm,ll
+
+            if (allocated(buffer_sph_plgndr_2)) then
+                deallocate(buffer_sph_plgndr_2)
+            end if
+            if (allocated(buffer_sph_plgndr_3)) then
+                deallocate(buffer_sph_plgndr_3)
+            end if
+            allocate(buffer_sph_plgndr_2(0:bispect_param%lmax))
+            allocate(buffer_sph_plgndr_3(0:bispect_param%lmax,0:bispect_param%lmax))
+
+            do mm=0,bispect_param%lmax
+                buffer_sph_plgndr_2(mm) = sqrt(dble(2*mm+3))
+            end do
+            
+            do mm=0,bispect_param%lmax
+                do ll=0,bispect_param%lmax
+                    buffer_sph_plgndr_3(ll,mm) =  sqrt( dble(4*(ll**2)-1)/dble((ll**2)-(mm**2)) )
+                end do
+            end do
+        end subroutine init_buffer_spherical_harm_plgndr
+
         subroutine init_spherical_harm(polars)
-            use spherical_harmonics, only : plgndr
+            use spherical_harmonics, only : plgndr,plgndr_sub1,plgndr_dev
 
             implicit none
 
@@ -437,11 +463,25 @@ module features
             integer :: dim(1:2),ii,mm,ll
             real(8),allocatable :: cos_theta(:)
             real(8) :: cos_m,sin_m
-
+            
+            !* get number of x, dim(2)
             dim = shape(polars)
+
+            if(allocated(buffer_sph_plgndr_1)) then
+                deallocate(buffer_sph_plgndr_1)
+            end if
+            !* (ii,mm) needed in plgndr, redundancy over l
+            allocate(buffer_sph_plgndr_1(1:dim(2),0:bispect_param%lmax))
+
             allocate(cos_theta(1:dim(2)))
             do ii=1,dim(2),1
                 cos_theta(ii) = cos(polars(2,ii))
+            end do
+
+            do mm=0,bispect_param%lmax,1
+                do ii=1,dim(2)
+                    buffer_sph_plgndr_1(ii,mm) = plgndr_sub1(cos_theta(ii),mm)
+                end do
             end do
 
             if (allocated(buffer_spherical_harm)) then
@@ -452,14 +492,17 @@ module features
 
             do ll=0,bispect_param%lmax
                 do ii=1,dim(2)
-                    buffer_spherical_harm(ii,0,ll) = plgndr(ll,0,cos_theta(ii))*complex(1.0d0,0.0d0)
+                    !buffer_spherical_harm(ii,0,ll) = plgndr(ll,0,cos_theta(ii))*complex(1.0d0,0.0d0)
+                    buffer_spherical_harm(ii,0,ll) = complex(plgndr_dev(ll,0,cos_theta(ii),buffer_sph_plgndr_1(ii,0)),0.0d0)
                 end do
 
                 do mm=1,ll
                     do ii=1,dim(2),1
                         cos_m = buffer_polar_sc(1,ii,mm)
                         sin_m = buffer_polar_sc(2,ii,mm)
-                        buffer_spherical_harm(ii,mm,ll) = plgndr(ll,mm,cos_theta(ii))*complex(cos_m,sin_m)
+                        !buffer_spherical_harm(ii,mm,ll) = plgndr(ll,mm,cos_theta(ii))*complex(cos_m,sin_m)
+                        buffer_spherical_harm(ii,mm,ll) = plgndr_dev(ll,mm,cos_theta(ii),buffer_sph_plgndr_1(ii,mm))&
+                        &*complex(cos_m,sin_m)
                     end do
                 end do
             end do
@@ -650,7 +693,7 @@ module features
             real(8),intent(in) :: polar(:,:)            
 
             !* associated legendre polynomials of polar angle - NO LONGER NECESSARY
-            call init_buffer_spherical_p(polar)
+            !call init_buffer_spherical_p(polar)
 
             !* trigonometric bases for azimuthal angle
             call init_buffer_polar_sc(polar)

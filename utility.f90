@@ -24,8 +24,8 @@ module utility
 
             integer,intent(in) :: ll,ll_1,ll_2
 
-            !cg_nonzero = (abs(ll_1-ll_2).le.ll).and.(ll.le.(ll_1+ll_2)) DEPRECATED
-            cg_nonzero = (abs(ll_1-ll_2).le.ll).and.(ll.le.(ll_1+ll_2)).and.(mod(ll+ll_1+ll_2,2).eq.0)
+            cg_nonzero = (abs(ll_1-ll_2).le.ll).and.(ll.le.(ll_1+ll_2)) !DEPRECATED
+            !cg_nonzero = (abs(ll_1-ll_2).le.ll).and.(ll.le.(ll_1+ll_2)).and.(mod(ll+ll_1+ll_2,2).eq.0)
         end function cg_nonzero
 
         subroutine get_m2_limits(ll_2,ll_3,mm_1,limits)

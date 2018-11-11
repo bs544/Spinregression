@@ -130,6 +130,68 @@ module spherical_harmonics
                 end if
             end if
         end function plgndr
+        
+        real(8) function plgndr_sub1(x,m)
+            implicit none
+            
+            !* args
+            real(8),intent(in) :: x
+            integer,intent(in) :: m
+
+            !* scratch
+            real(8) :: pmm,omx2,fact,oldfact
+            integer :: i
+            
+            pmm = 1.0d0
+            if (m.gt.0) then
+                omx2 = (1.0d0-x)*(1.0d0+x)
+                fact = 1.0d0
+                do i=1,m
+                    pmm = pmm*omx2*fact/(fact+1.0d0)
+                    fact = fact + 2.0d0
+                end do
+            end if
+            
+            pmm = sqrt( dble(2*m+1)*pmm*0.07957747155d0 )
+            if(mod(m,2).eq.1) pmm = -pmm
+            
+            plgndr_sub1 = pmm
+        end function plgndr_sub1
+
+        real(8) function plgndr_dev(l,m,x,x_pmm)
+            ! This contains the factor 
+            ! sqrt{  [2*l+1]/[4*pi] *factorial(l-m)/factorial(l+m)  }
+            !
+            ! m=[0,l] is always positive for this function
+            implicit none
+
+            integer,intent(in) :: l,m
+            real(8),intent(in) :: x,x_pmm
+
+            integer :: i,ll
+            real(8) :: fact,oldfact,pll,pmm,pmmp1,omx2
+
+            pmm = x_pmm
+
+            if(l.eq.m) then
+                plgndr_dev = pmm
+            else
+                pmmp1 = x*buffer_sph_plgndr_2(m)*pmm 
+                if (l.eq.m+1) then
+                    plgndr_dev = pmmp1
+                else
+                    oldfact = buffer_sph_plgndr_2(m)
+                    do ll=m+2,l
+                        fact = buffer_sph_plgndr_3(ll,m)
+                        pll = (x*pmmp1-pmm/oldfact)*fact
+                        oldfact = fact
+                        pmm = pmmp1
+                        pmmp1 = pll
+                    end do
+                    plgndr_dev = pll
+                end if
+            end if
+        end function plgndr_dev
 
         function arth_d(first,increment,n)
             ! numerical recipes nrutil, function arth_d

@@ -54,6 +54,9 @@ module config
     real(8),allocatable :: buffer_radial_overlap_w(:,:)     ! linear combination coefficients from basis overlap
     real(8),allocatable :: buffer_cg_coeff(:,:,:,:,:,:)     ! SU(2) Clebsch-Gordan coefficients
     real(8),allocatable :: buffer_factorial(:)              ! factorial [0,3*lmax+1] for CB coefficients
+    real(8),allocatable :: buffer_sph_plgndr_1(:,:)         ! (ii,mm) part of pldndr, independant of l
+    real(8),allocatable :: buffer_sph_plgndr_2(:)           ! (mm) sqrt(2m+1)
+    real(8),allocatable :: buffer_sph_plgndr_3(:,:)         ! (ll,mm) sqrt( dble(4*(ll**2)-1)/dble((ll**2)-(m**2)) )
     complex(8),allocatable :: buffer_cnlm(:,:,:)            ! environment projection onto bases
     integer,allocatable :: buffer_lvalues(:,:)              ! l,l1,l2 for which CG has nonzero values
 
@@ -63,6 +66,7 @@ module config
     !$omp threadprivate(buffer_polar_sc)
     !$omp threadprivate(buffer_cnlm)
     !$omp threadprivate(buffer_spherical_harm)
+    !$omp threadprivate(buffer_sph_plgndr_1)
 
     contains
         !* methods
