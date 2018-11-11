@@ -13,11 +13,19 @@ module utility
     contains
         logical function cg_nonzero(ll,ll_1,ll_2)
             ! get l,l1,l2 values where CG has nonzero coefficients
+            !
+            ! Condition 1: |l1-l2| <= l
+            ! Condition 2: l <= l1+l2
+            ! Condition 3: l+l1+l2 = even
+            !
+            ! [1] Monthly Notices of the Royal Society, Volume 318, Issue 2, 
+            !     pg 584-598, (2000)
             implicit none
 
             integer,intent(in) :: ll,ll_1,ll_2
 
-            cg_nonzero = (abs(ll_1-ll_2).le.ll).and.(ll.le.(ll_1+ll_2))
+            !cg_nonzero = (abs(ll_1-ll_2).le.ll).and.(ll.le.(ll_1+ll_2)) DEPRECATED
+            cg_nonzero = (abs(ll_1-ll_2).le.ll).and.(ll.le.(ll_1+ll_2)).and.(mod(ll+ll_1+ll_2,2).eq.0)
         end function cg_nonzero
 
         subroutine get_m2_limits(ll_2,ll_3,mm_1,limits)
