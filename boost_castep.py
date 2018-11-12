@@ -39,6 +39,8 @@ from features.util import tapering,write_density_to_disk
 import numpy as np
 import itertools
 
+timer = {"module imports":time.time()-t0}
+
 def argparse(arglist):
     """
     parse arglist into key:value pairs of arg descriptor or command line key
@@ -246,6 +248,8 @@ def fetch_tapering_function(model):
     
 
 def generate_initial_density(args):
+    t1 = time.time()
+
     # raw features and pca reduction
     feats = generate_data(load="{}".format(args["model"]))
     
@@ -261,21 +265,24 @@ def generate_initial_density(args):
     # read .cell for cell vectors, grid points, atom positions
     gip,fft_grid = get_crystal(args["sysname"])
 
+    timer.update({"loading model":time.time()-t1})
+
     t1 = time.time()
 
     # pca reduced input
     X,_ = feats.predict(gip)
 
-    t2 = time.time()
 
     # need to rescale reduced pca input such that <X>=0, var(X)=1 along each axis
     X = net_input_transform.get_xs_standardized(X)
 
-    t3 = time.time()
+    timer.update({"bispectrum calculation":time.time()-t1})
+    
+    t2 = time.time()
 
     ymean,ystd = network_ensemble.predict(X)
 
-    t4 = time.time()
+    timer.update({"neural network calculation":time.time()-t2})
 
     # apply tapering, identity when no tapering pckl file is present
     taper = tapering_func(np.average(np.log(np.square(ystd))))
@@ -299,16 +306,41 @@ def run_castep(args):
     # tidy up
     os.remove("{}.initial_den".format(args["sysname"]))
 
+def get_average_scf_time(args):
+    if os.path.exists("{}.castep".format(args["sysname"])):
+        with open("{}.castep".format(args["sysname"]),"r") as f:
+            flines = f.readlines()
+
+            idx = [ii for ii,_l in enumerate(flines) if "<-- SCF" in _l and len(_l.split())==7]
+
+            timer.update({"average time per SCF":np.average([float(flines[idx[ii+1]].split()[4]) - \
+                    float(flines[idx[ii]].split()[4]) for ii in range(len(idx)-1)]) })
+
+
+def display_timer_info(timer):
+    print("\n---------------------")
+    print("Profiling information")
+    print("---------------------\n")
+    for _attr in ["module imports","loading model","bispectrum calculation",\
+            "neural network calculation"]:
+        print("{:<40} : {:<.3f} s".format(_attr,timer[_attr]))            
+    print("".join(["-" for ii in range(50)]))
+    print("{:>40} : {:<.3f} s".format("Total",timer["total time computing initial density"]))
+    print("\n{:<40} : {:<.3f} s".format("average time per SCF cycle",timer["average time per SCF"]))
+    print("\n")
+
 if __name__ == "__main__":
     args = argparse(sys.argv[1:])
 
     generate_initial_density(args)
     
+    timer.update({"total time computing initial density":time.time()-t0})
+
     run_castep(args)
 
-    print(time.time()-t0)
+    get_average_scf_time(args)
 
-
+    display_timer_info(timer)
 
 
 
