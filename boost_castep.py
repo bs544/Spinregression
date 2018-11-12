@@ -280,10 +280,14 @@ def generate_initial_density(args):
     # apply tapering, identity when no tapering pckl file is present
     taper = tapering_func(np.average(np.log(np.square(ystd))))
 
-    gip.supercells[0]["edensity"]["density"] = np.ones(ymean.shape)*taper
+    gip.supercells[0]["edensity"]["density"] = ymean*taper
 
-    # write unformatted density file
-    write_density_to_disk(gip.supercells[0]["edensity"]["density"],fft_grid,"{}.initial_den".format(args["sysname"]))
+    # volume of primitive cell in real space
+    cell_volume = abs(np.dot(gip.supercells[0]["cell"][0],np.cross(gip.supercells[0]["cell"][1],gip.supercells[0]["cell"][2])))
+
+    # write unformatted density file, castep takes units=[e] rather than untis=[e/A^3]
+    write_density_to_disk(gip.supercells[0]["edensity"]["density"]*cell_volume,\
+            fft_grid,"{}.initial_den".format(args["sysname"]))
 
 def run_castep(args):
     if args["np"]>1:
@@ -293,7 +297,7 @@ def run_castep(args):
     os.system("{} {}".format(os.environ["CASTEP_SERIAL_BOOST"],args["sysname"]))
 
     # tidy up
-    os.remove("{}.initial_den".format(args["sysname"]))
+    #os.remove("{}.initial_den".format(args["sysname"]))
 
 if __name__ == "__main__":
     args = argparse(sys.argv[1:])

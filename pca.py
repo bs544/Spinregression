@@ -173,10 +173,11 @@ class generate_data():
         """
 
         X_local,X_global,y,natms = self._calculate_features(gip)
-       
-        if len(X_global.shape)==1:
-            # need to check if only one structure is in training set for global descriptor PCA
-            X_global = np.reshape(X_global,(1,-1))
+      
+        if X_global is not None:
+            if len(X_global.shape)==1:
+                # need to check if only one structure is in training set for global descriptor PCA
+                X_global = np.reshape(X_global,(1,-1))
 
         # local PCA 
         self.local_pca = PCA(explained_variance=self.explained_variance) 

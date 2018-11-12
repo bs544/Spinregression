@@ -391,6 +391,7 @@ module utility
         end subroutine load_balance_alg_1
 
         subroutine write_density_to_disk(density,nx_fine,ny_fine,nz_fine,filename)
+            ! density is 1d array of grid points read in order of den_fmt file
             implicit none
 
             real(dp),intent(in) :: density(:)

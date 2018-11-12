@@ -422,7 +422,8 @@ class regressor():
         self._init_MLPGaussianRegressor()
         self.session["tf_session"] = tf.Session()
         self.session["tf_session"].run(tf.global_variables_initializer())
-        self.session["saver"] = tf.train.Saver(tf.global_variables())
+        #self.session["saver"] = tf.train.Saver(tf.global_variables())
+        self.session["saver"] = tf.train.Saver([_v for _v in tf.global_variables() if "RMSProp" not in _v.name])
         self.session["saver"].restore(self.session["tf_session"],"{}/{}".format(prefix,prefix))
 
     def _load_bayes(self,prefix):
