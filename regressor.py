@@ -241,7 +241,7 @@ class regressor():
                 x,y = self.train_data.next_batch()
                 feed = {model.input_data: x, model.target_data: y}
 
-                for cntr in range(maxiter_per_minibatch):
+                for minibatch_iter in range(maxiter_per_minibatch):
 
                     if self.method == "nonbayes_dropout":
                         feed.update({model.dr : self.method_args["keep_prob"]})
