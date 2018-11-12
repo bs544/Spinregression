@@ -297,7 +297,7 @@ def run_castep(args):
     os.system("{} {}".format(os.environ["CASTEP_SERIAL_BOOST"],args["sysname"]))
 
     # tidy up
-    #os.remove("{}.initial_den".format(args["sysname"]))
+    os.remove("{}.initial_den".format(args["sysname"]))
 
 if __name__ == "__main__":
     args = argparse(sys.argv[1:])
