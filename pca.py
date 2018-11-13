@@ -171,6 +171,18 @@ class generate_data():
         """
         Do 2 separate PCAs, one for local and one for global x
         """
+        def _check_gip(gip):
+            for ii,_conf in enumerate(gip.supercells):
+                for _attr in ["cell","positions","edensity"]:
+                    if _conf[_attr] is None:
+                        raise GeneralError("Mandatory configuration attribute {} is missing".format(_attr))            
+                for _attr in ["xyz","density"]:
+                    if _conf["edensity"][_attr] is None:
+                        raise GeneralError("Mandatory configuration attribute edensity/{} is missing".format(_attr))
+
+                if _conf["positions"].shape != _conf["edensity"]["xyz"] or \
+                        _conf["positions"].shape[0]!=_conf["edensity"]["density"].shape[0]:
+                    raise GeneralError("mismatch in shape of supplied configuration attributes")
 
         X_local,X_global,y,natms = self._calculate_features(gip)
       
