@@ -75,10 +75,10 @@ class regressor():
         """
         set method specific arguments
         """
-        default_values = {"nonbayes":{"learning_rate":1e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0},\
+        default_values = {"nonbayes":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0},\
                           "nonbayes-mdn":{"learning_rate":1e-2,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,\
                                 "grad_clip":100.0},\
-                          "nonbayes_dropout":{"learning_rate":1e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,\
+                          "nonbayes_dropout":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,\
                           "grad_clip":100.0,"keep_prob":0.8},\
                           "vi_bayes":{}}
 
@@ -229,12 +229,15 @@ class regressor():
             self.session["tf_session"].run(tf.assign(model.output_mean,self.train_data.target_mean))
             self.session["tf_session"].run(tf.assign(model.output_std,self.train_data.target_std))
 
+        # keep value of minibatch loss so convergence can be checked at end
+        self.loss = [[] for ii in range(self.Nensemble)]
+
         maxiter_per_minibatch = 10
         num_minibatch = max([1,int(self.maxiter/maxiter_per_minibatch)])
 
         #for itr in range(self.maxiter):
         #    for model in self.session["ensemble"]:
-        for model in self.session["ensemble"]:
+        for model_idx,model in enumerate(self.session["ensemble"]):
             cntr = 0
             for batch_itr in range(num_minibatch):
                 # can train on distinct mini batches for each ensemble
@@ -247,11 +250,14 @@ class regressor():
                         feed.update({model.dr : self.method_args["keep_prob"]})
 
                     if self.method == "nonbayes":
-                        _ = self.session["tf_session"].run([model.train_op], feed)
+                        _,loss = self.session["tf_session"].run([model.train_op,model.loss_value], feed)
                     if self.method == "nonbayes-mdn":
                         _  = self.session["tf_session"].run([model.train_op], feed)
                     elif self.method == "nonbayes_dropout":
-                        _, nll = self.session["tf_session"].run([model.train_op, model.nll], feed)
+                        _,loss = self.session["tf_session"].run([model.train_op, model.nll], feed)
+
+                    if np.mod(cntr,10)==0:
+                        self.loss[model_idx].append(loss)
 
                     cntr += 1
                     if np.mod(cntr,100)==0:
@@ -273,6 +279,9 @@ class regressor():
                 loss_after = self.session["tf_session"].run([model.loss_value],feed)
 
                 print("loss before = {} loss after = {}".format(loss_before,loss_after))
+
+        # for easy slicing upon analysis
+        self.loss = np.asarray(self.loss)
 
         # pass in standardized data
         pred_mean,pred_std = self._predict_nonbayes(self.train_data.xs_standardized,self.Nensemble)

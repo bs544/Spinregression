@@ -95,7 +95,7 @@ class format_data():
         return self.xs_standardized[idx],self.ys[idx]
 
 def tapering(x,xcut,scale):
-    xprime = x-xcut/scale
+    xprime = (x-xcut)/scale
 
     if not isinstance(x,(list,np.ndarray)):
         xprime = np.asarray([xprime])

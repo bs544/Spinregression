@@ -7,10 +7,10 @@ module boundaries
     !* linear algebra routines
     external :: dgemv    
 
-    integer,private,parameter :: buffer_size1=1000
+    integer,private :: buffer_size1=1000
 
     contains
-        subroutine find_neighbouring_images(neighbouring_images)
+        subroutine find_neighbouring_images(neighbouring_images,buffer_size)
             ! find all cell images n : gamma = gamma + n such that
             ! |r| = |gamma*L + n*L| <= rcut
             !
@@ -30,12 +30,17 @@ module boundaries
 
             ! args
             real(8),allocatable,intent(inout) :: neighbouring_images(:,:)
+            integer,intent(in),optional :: buffer_size
 
             !* scratch
             real(8) :: scratch_images(1:3,1:buffer_size1)
             integer :: n1,n2,n3,cntr,lim
             real(8) :: dn(1:3),dr_vec(1:3),dr
             real(8) :: dble_nvec(1:3)
+
+            if (present(buffer_size)) then
+                buffer_size1 = buffer_size
+            end if
 
             !* max distance is lim adjacent images
             lim=10

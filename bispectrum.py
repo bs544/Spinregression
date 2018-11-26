@@ -24,7 +24,7 @@ def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form=
 
     return X 
 
-def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="powerspectrum"):
+def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="powerspectrum",buffersize=1000):
     """
     Return the bispectrum features for a seris of grid points in real space.
     These points are embedded in an infinite periodic crystal defined by
@@ -71,12 +71,13 @@ def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="
     X = np.zeros((num_features,xyz.shape[0]),dtype=np.float64,order='F')
 
     f90_calculate_local(cell=format_py_to_f90(cell),atom_positions=format_py_to_f90(atom_pos_uvw),\
-            grid_coordinates=format_py_to_f90(xyz),rcut=rcut,parallel=parallel,lmax=lmax,nmax=nmax,calc_type=c_type,x=X)
+            grid_coordinates=format_py_to_f90(xyz),rcut=rcut,parallel=parallel,lmax=lmax,nmax=nmax,calc_type=c_type,\
+            buffer_size=int(buffersize),x=X)
 
     return np.asarray(X.T,order='C')
 
 
-def global_features(cell,atom_pos_uvw,nmax,lmax,rcut=6.0,form="powerspectrum"):
+def global_features(cell,atom_pos_uvw,nmax,lmax,rcut=6.0,form="powerspectrum",buffersize=1000):
     """
     Return the global power/bi-spectrum vector for a crystal using tapered
     local approximations for the radial bases
@@ -90,7 +91,7 @@ def global_features(cell,atom_pos_uvw,nmax,lmax,rcut=6.0,form="powerspectrum"):
     X = np.zeros(num_features,dtype=np.float64,order='F')
 
     f90_calculate_global(cell=format_py_to_f90(cell),atom_positions=format_py_to_f90(atom_pos_uvw),\
-            rcut=rcut,lmax=lmax,nmax=nmax,calc_type=c_type,x=X)
+            rcut=rcut,lmax=lmax,nmax=nmax,calc_type=c_type,buffer_size=int(buffersize),x=X)
 
     return np.asarray(X,order='F')            
 

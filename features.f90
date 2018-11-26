@@ -47,7 +47,7 @@ module features
         end function check_cardinality
 
         subroutine calculate_local(cell,atom_positions,grid_coordinates,rcut,parallel,&
-        &lmax,nmax,calc_type,X)
+        &lmax,nmax,calc_type,buffer_size,X)
             ! Compute bispectrum features as in [1]
             !
             ! x_nl = sum_{m=-l}^{m=l} c_{nlm}^* c_{nlm} 
@@ -72,7 +72,7 @@ module features
             real(8),intent(in) :: cell(1:3,1:3),atom_positions(:,:)
             real(8),intent(in) :: grid_coordinates(:,:),rcut
             logical,intent(in) :: parallel
-            integer,intent(in) :: lmax,nmax,calc_type
+            integer,intent(in) :: lmax,nmax,calc_type,buffer_size
             real(8),intent(inout) :: X(:,:)
 
             !* scratch
@@ -121,7 +121,7 @@ module features
             !* cartesians of all relevant atom images 
             
             !* list of relevant images
-            call find_neighbouring_images(neigh_images)
+            call find_neighbouring_images(neigh_images,buffer_size)
             
             !* generate cartesians of all relevant atoms
             call config_type__generate_ultracell(neigh_images)
@@ -177,7 +177,7 @@ module features
         end subroutine calculate_local
 
         subroutine calculate_global(cell,atom_positions,rcut,lmax,nmax,&
-        &calc_type,X)
+        &calc_type,buffer_size,X)
             ! Compute global features as
             ! cnlm = \sum_i \sum_neighbours_j gn(drij)Y_ml()
             use omp_lib
@@ -185,7 +185,7 @@ module features
             implicit none
 
             real(8),intent(in) :: atom_positions(:,:),rcut,cell(1:3,1:3)
-            integer,intent(in) :: lmax,nmax,calc_type
+            integer,intent(in) :: lmax,nmax,calc_type,buffer_size
             real(8),intent(inout) :: X(:)
 
             !* scratch
@@ -219,7 +219,7 @@ module features
             call config_type__set_local_positions(atom_positions)
 
             !* fetch relevant images
-            call find_neighbouring_images(neigh_images)
+            call find_neighbouring_images(neigh_images,buffer_size)
 
             !* generate ultracell
             call config_type__generate_ultracell(neigh_images)
