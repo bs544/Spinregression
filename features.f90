@@ -862,6 +862,10 @@ module features
             end do
 
             if (global_features) then
+! debug
+write(*,*) natm
+! debug
+
                 dim_2 = shape(structure%local_positions)
 
                 !* cnlm = 1/natm sum_{local_atoms} sum_{neighbours_to_local_atom} Y_ml gn

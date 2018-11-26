@@ -42,7 +42,8 @@ module boundaries
                 buffer_size1 = buffer_size
             end if
 
-            !* max distance is lim adjacent images
+            !* For stupendously large rcut, this will need to be larger. No warning will be given, just a capped interaction V
+            !lim=100
             lim=10
 
             dr_vec = 0.0d0        
