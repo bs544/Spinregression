@@ -1,0 +1,13 @@
+task                           : moleculardynamics 
+md_num_iter                    : 10000
+md_ensemble                    : NVT
+md_temperature                 : 350 K
+xc_functional                  : pbe                           
+cut_off_energy                 : 300                           
+sedc_apply                     : true                          
+sedc_scheme                    : ts                            
+iprint                         : 1                             
+write_checkpoint               : false                         
+write_bib                      : false                         
+write_otfg                     : false                         
+max_scf_cycles                 : 150                           

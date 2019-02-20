@@ -1,0 +1,13 @@
+task                           : singlepoint                   
+xc_functional                  : pbe                           
+cut_off_energy                 : 800                           
+elec_energy_tol                : 5e-07                         
+grid_scale                     : 2.0                           
+fine_grid_scale                : 3.5                           
+smearing_width                 : 300 K
+finite_basis_corr              : none
+iprint                         : 1                             
+write_checkpoint               : none                          
+write_bib                      : false                         
+write_otfg                     : false                         
+max_scf_cycles                 : 150                          

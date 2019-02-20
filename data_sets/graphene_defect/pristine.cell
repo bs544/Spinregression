@@ -1,0 +1,14 @@
+%block lattice_cart
+2.4595121467478056   0.0                  0.0                 
+-1.2297560733739024  2.13                 0.0                 
+0.0                  0.0                  20.0                
+%endblock lattice_cart
+
+%block positions_frac
+C     0.33333333333333354  0.6666666666666669   0.5                 
+C     0.666666666666667    0.3333333333333335   0.5                 
+%endblock positions_frac
+
+symmetry_generate
+
+kpoints_mp_grid 36 36 1
