@@ -1,9 +1,9 @@
 """
 module for bispectrum features around atoms
 """
-from spinRegression.powerspectrum_f90api import f90wrap_calculate_local as f90_calculate_local
-from spinRegression.powerspectrum_f90api import f90wrap_calculate_global as f90_calculate_global
-from spinRegression.powerspectrum_f90api import f90wrap_check_cardinality as f90_num_features
+from features.powerspectrum_f90api import f90wrap_calculate_local as f90_calculate_local
+from features.powerspectrum_f90api import f90wrap_calculate_global as f90_calculate_global
+from features.powerspectrum_f90api import f90wrap_check_cardinality as f90_num_features
 import numpy as np
 
 def fp_length(nmax,lmax,form):

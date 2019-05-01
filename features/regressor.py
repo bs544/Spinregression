@@ -1,11 +1,11 @@
 """
 Interface to regression and prediction
 """
-from spinRegression.util import format_data,toy_argparse
+from features.util import format_data,toy_argparse
 import pickle
 import os
-from spinRegression.heuristic_model import MLPGaussianRegressor,MLPDropoutGaussianRegressor,MLPDensityMixtureRegressor
-from spinRegression.bayes import vi_bayes
+from features.heuristic_model import MLPGaussianRegressor,MLPDropoutGaussianRegressor,MLPDensityMixtureRegressor
+from features.bayes import vi_bayes
 #from edward import KLqp
 from sklearn.metrics import mean_squared_error as mse
 import warnings

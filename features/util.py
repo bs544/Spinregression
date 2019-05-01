@@ -1,5 +1,5 @@
 import numpy as np
-from spinRegression.powerspectrum_f90api import f90wrap_write_density_to_disk as f90_write_den
+from features.powerspectrum_f90api import f90wrap_write_density_to_disk as f90_write_den
 import scipy
 
 class test_class():
