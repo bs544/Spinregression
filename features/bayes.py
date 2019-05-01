@@ -1,14 +1,15 @@
 import tensorflow as tf
-from edward.models import Normal
-from edward import KLqp
-from edward import evaluate
-import edward
+#from tensorflow_probability.distributions import Normal
+#from edward.models import Normal
+# from edward import KLqp
+# from edward import evaluate
+#import edward
 import numpy as np
 
 class vi_bayes():
     def __init__(self,args,layers):
         """
-        first arg of layers is dimension 
+        first arg of layers is dimension
         """
         self.dtype = args.dtype
 
@@ -23,7 +24,7 @@ class vi_bayes():
         nodes = [[layers[0],layers[1]]]
         for ii in range(1,len(layers)-1):
             nodes.append([layers[ii],layers[ii+1]])
-        nodes.append([layers[-1],1])            
+        nodes.append([layers[-1],1])
 
 
         input_data = tf.placeholder(dtype=self.dtype,shape=[None,layers[0]])
@@ -59,23 +60,23 @@ class vi_bayes():
                 with tf.variable_scope("qb_{}".format(ii)):
                     loc = tf.get_variable("loc",[nodes[ii][1]],dtype=self.dtype)
                     scale = tf.nn.softplus(tf.get_variable("scale",[nodes[ii][1]],dtype=self.dtype))
-                    
+
                     # factored variational dist
                     self.qb[ii] = Normal(loc=loc,scale=scale)
 
-    
+
     def neural_net(self,X):
         h = tf.tanh(tf.matmul(X,self.weights[0])+self.biases[0])
         for ii in range(1,len(self.weights)-1):
             h = tf.tanh(tf.matmul(h,self.weights[ii])+self.biases[ii])
         return tf.reshape(tf.matmul(h,self.weights[-1])+self.biases[-1],[-1])
-    
+
     def fit(self,X,y):
         pairs = {}
         for ii in range(len(self.weights)):
             pairs.update({self.weights[ii]:self.qW[ii],self.biases[ii]:self.qb[ii]})
 
-        inference = KLqp(pairs,data={self.X:X,self.y:y}) 
+        inference = KLqp(pairs,data={self.X:X,self.y:y})
         inference.run(logdir="log")
 
         mse = evaluate("mean_squared_error",data={self.y:y,self.X:X})
@@ -102,7 +103,7 @@ class vi_bayes():
             self.biases  = [self.qb[ww].mean() for ww in range(len(self.weights))]
 
             prediction[ii] = tf.reshape(self.neural_net(X),[-1])
-            
+
         prediction_mean,prediction_var = tf.nn.moments(tf.stack(prediction),axes=[0])
 
         # convert tensor -> numpy.ndarray
@@ -115,7 +116,7 @@ class vi_bayes():
             #    prediction = output
             #else:
             #    prediction = tf.stack([prediction,output],axis=0)
-            #print(np.shape(prediction))                
+            #print(np.shape(prediction))
             #y = self.neural_net(X) #+noise_post[ii]
             #print(np.shape(y),type(y),type(y[0]))
 
@@ -137,12 +138,12 @@ class vi_bayes():
 
             #    print(prediction[ii])
         #prediction = tf.cast(prediction,tf.float64)
-        
+
         #with tf.Session() as sess:
         #    #mean,var = tf.nn.moments(y_post.sample(Nsample),feed_dict={self.X:X})
         #    out = y_post.sample(Nsample).eval()
         #    #mean,var = tf.nn.moments(y_post.sample(Nsample),axes=1)
-        ##print(tf.shape(mean),tf.shape(var))            
+        ##print(tf.shape(mean),tf.shape(var))
         ##mean = tf.reshape(mean,[-1,1])
         ##var = tf.reshape(var,[-1,1])
         #print(np.shape(out))
