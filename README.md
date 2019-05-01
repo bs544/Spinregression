@@ -8,3 +8,7 @@ run build.sh within the features directory to compile the fortran.
 
 The data_sets directory contains CASTEP input files that generate a series of
 small data sets for density regression.
+
+----
+Currently working on adding the capability to learn spin density alongside total 
+density, as well as a covariance matrix.
