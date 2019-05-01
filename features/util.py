@@ -1,12 +1,13 @@
 import numpy as np
-from features.powerspectrum_f90api import f90wrap_write_density_to_disk as f90_write_den
+from spinRegression.powerspectrum_f90api import f90wrap_write_density_to_disk as f90_write_den
+import scipy
 
 class test_class():
     def __init__(self):
         pass
 
 class format_data():
-    def __init__(self,X=None,y=None):
+    def __init__(self,X=None,y=None,val_fraction=0.05):
         """
         Pre processing involved for input to neural net
         """
@@ -18,16 +19,21 @@ class format_data():
         self.target_mean = None
         self.target_std = None
         self.batch_size = None
+        self.val_fraction = val_fraction
+        self.val_idx=None
+        self.batch = None
 
-        if X is not None:
+        if X is not None and y is not None:
+            self.set_data(X=X,y=y,val_frac=self.val_fraction)
+        elif X is not None:
             self.set_data(X=X)
-        if y is not None:
+        elif y is not None:
             self.set_data(y=y)
 
-    def set_data(self,X=None,y=None):
+    def set_data(self,X=None,y=None,val_frac=None):
         """
         transform X to have 0 mean, standard deviation of 1 in each dimension
-        
+
         Attributes
         ----------
         X : shape=(N,D)
@@ -35,6 +41,14 @@ class format_data():
         """
         if X is not None:
             self.xs = X
+            if (val_frac is not None):
+                N_data = self.xs.shape[0]
+                N_val = int(N_data*val_frac)
+                if (self.val_idx is None):
+                    self.val_idx = np.random.choice(np.arange(N_data),size=N_data,replace=False)
+                self.xs_val = self.xs[self.val_idx[:N_val],:]
+                self.xs = self.xs[self.val_idx[N_val:],:]
+
             self.input_mean = np.mean(self.xs,axis=0)
             self.input_std = np.std(self.xs,axis=0)
 
@@ -51,12 +65,34 @@ class format_data():
             self.xs_standardized = self.get_xs_standardized(self.xs)
         if y is not None:
             self.ys = y
-            self.target_mean = np.mean(self.ys,0)
-            self.target_std = np.std(self.ys,0)
-            
-            if len(self.ys.shape)==1:
+
+            #self.target_std = np.std(self.ys,0)
+
+
+            if (len(self.ys.shape)==1):
+                self.y_dim = 1
                 # need (N,1) rather than (N,)
                 self.ys = np.reshape(self.ys,(-1,1))
+                self.target_mean = np.mean(self.ys,0)
+                self.target_std = np.std(self.ys,0)#.reshape(-1,1)
+
+            elif (self.ys.shape[1] == 1):
+                self.y_dim = 1
+                self.target_mean = np.mean(self.ys,0)
+                self.target_std = np.std(self.ys,0)
+
+            else:
+                self.y_dim = self.ys.shape[1]
+                self.target_mean = np.mean(self.ys,0)
+                self.target_std = scipy.linalg.sqrtm(np.cov(self.ys.T))
+
+            if (val_frac is not None):
+                N_data = self.ys.shape[0]
+                N_val = int(N_data*val_frac)
+                if (self.val_idx is None):
+                    self.val_idx = np.random.choice(np.arange(N_data),size=N_data,replace=False)
+                self.ys_val = self.ys[self.val_idx[:N_val],:]
+                self.ys = self.ys[self.val_idx[N_val:],:]
 
     def set_batch_size(self,batch_size):
         """
@@ -64,7 +100,9 @@ class format_data():
         """
         if batch_size<0.0 or batch_size>1.0: raise GeneralError("invalid batch size {} ".format(batch_size))
         self.batch_size = batch_size
-        
+        Ntrain = self.ys.shape[0]
+        self.batch = int(Ntrain*self.batch_size)
+
 
     def get_xs_standardized(self,xs):
         """
@@ -74,7 +112,7 @@ class format_data():
         res = (xs - self.input_mean)/self.input_std
         if len(res.shape)==1:
             # need (N,1) rather than (N,)
-            res = np.reshape(res,(-1,1))
+            res = np.reshape(res,(-1,1)).T
         return res
 
     def next_batch(self):
@@ -91,8 +129,34 @@ class format_data():
         else:
             # choose without replacement, no repeats
             idx = np.random.choice(np.arange(Ntrain),size=int(self.batch_size*Ntrain),replace=False)
-        
+
         return self.xs_standardized[idx],self.ys[idx]
+
+    #ben's change
+    def next_batch_set(self):
+        """
+        generate a set of mini batches using self.batch_size
+        """
+        if self.batch_size is None: raise GeneralError("Batch size needs setting before mini batch generation")
+        if self.xs_standardized is None or self.ys is None: raise GeneralError("Data must be set before generating batches")
+
+        Ntrain = self.xs_standardized.shape[0]
+
+        idx = list(np.random.choice(np.arange(Ntrain),size=Ntrain,replace=False).astype(int))
+
+        x_batch = []
+        y_batch = []
+
+        n_batches = int(1.0/self.batch_size)
+        if (self.batch is None):
+            self.batch = int(Ntrain*self.batch_size)
+
+        for i in range(n_batches):
+            x_batch.append(self.xs_standardized[idx[i*self.batch:(i+1)*self.batch],:])
+            y_batch.append(self.ys[idx[i*self.batch:(i+1)*self.batch],:])
+
+
+        return x_batch, y_batch
 
 def tapering(x,xcut,scale):
     xprime = (x-xcut)/scale
@@ -106,7 +170,7 @@ def tapering(x,xcut,scale):
 
     res = xprime4 / (1.0 + xprime4)
     res[idx] = 0.0
-    
+
     if not isinstance(x,(list,np.ndarray)):
         res = res[0]
     return res
@@ -120,7 +184,7 @@ class toy_argparse():
         mimick behaviour of argparse.parse_args() instance
         """
         if not isinstance(args,dict): raise GeneralError("arg to toy_argparse() must be a dictionary")
-        
+
         for _key in args.keys():
             # assign key,value as attribute name,values
             setattr(self,_key,args[_key])
