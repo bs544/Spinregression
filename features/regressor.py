@@ -1,36 +1,41 @@
 """
 Interface to regression and prediction
 """
-from features.util import format_data,toy_argparse
-import numpy as np
-import tensorflow as tf
+from spinRegression.util import format_data,toy_argparse
 import pickle
 import os
-from features.heuristic_model import MLPGaussianRegressor,MLPDropoutGaussianRegressor,MLPDensityMixtureRegressor
-from features.bayes import vi_bayes
-from edward import KLqp
+from spinRegression.heuristic_model import MLPGaussianRegressor,MLPDropoutGaussianRegressor,MLPDensityMixtureRegressor
+from spinRegression.bayes import vi_bayes
+#from edward import KLqp
 from sklearn.metrics import mean_squared_error as mse
+import warnings
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore",category=DeprecationWarning)
+    import numpy as np
+    import tensorflow as tf
+
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['KMP_AFFINITY'] = 'noverbose'
 
 class regressor():
     def __init__(self,method="nonbayes",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
     batch_size=1.0,dtype=tf.float64,method_args={},load=None):
         """
         Interface to regression using heuristic ensembles or VI Bayes. In both
-        cases, uncertainties are made by an ensemble of nets or repeated 
+        cases, uncertainties are made by an ensemble of nets or repeated
         sampling of posterior predictive distribution in the case of Bayes.
 
         Detailed outline of methods can be found
-        
-        (heuristic) : arXiv:1612.01474, Simple and Scalable Predictive 
+
+        (heuristic) : arXiv:1612.01474, Simple and Scalable Predictive
         Uncertainty Estimation using Deep Ensembles, (2017)
 
-        (VI bayes) : arXiv:1610.09787, Edward: A library for probabilistic 
+        (VI bayes) : arXiv:1610.09787, Edward: A library for probabilistic
         modeling, inference, and criticism
         """
         self.supp_methods = ["nonbayes","nonbayes_dropout","nonbayes-mdn","vi_bayes"]
-      
+
         if load is None:
             self.set_method(method)
             self.set_layers(layers)
@@ -49,14 +54,14 @@ class regressor():
         """
         if method.lower() not in self.supp_methods: raise GeneralError("method {} not in {}".format(method,self.supp_methods))
         self.method = method.lower()
-    
+
     def set_layers(self,layers):
         """
         Set number of nodes in each layer
         """
         if not isinstance(layers,(np.ndarray,list)): raise GeneralError("layers type {} not supported".format(type(layers)))
         self.layers = np.asarray(layers,dtype=int)
-        
+
     def set_Nensemble(self,Nensemble):
         """
         Set either size of ensemble in heuristic approach, or number of samples
@@ -91,16 +96,16 @@ class regressor():
         for _attr in default_values[self.method].keys():
             # use default is not given
             if _attr not in method_args.keys(): method_args.update({_attr:default_values[self.method][_attr]})
-        
+
         self.method_args = method_args
-    
+
     def set_activation(self,activation):
         """
         Set type of activation function to use for all nodes
         """
         if activation.lower() not in ["logistic","relu","tanh"]: raise GeneralError("activation type {} not supported".\
                 format(activation))
-        self.activation = activation.lower()                
+        self.activation = activation.lower()
 
     def set_batch_size(self,batch_size):
         """
@@ -120,10 +125,11 @@ class regressor():
         """
         Perform chosen regression on given data
         """
-        
+
         # initial net weights assume 0 mean, 1 standard deviation
         self.train_data = format_data(X=X,y=y)
-        
+        self.y_dim = self.train_data.y_dim
+
         # set mini batch size
         self.train_data.set_batch_size(self.batch_size)
 
@@ -131,27 +137,27 @@ class regressor():
         self.D = self.train_data.xs_standardized.shape[1]
 
         if self.method in  ["nonbayes","nonbayes_dropout","nonbayes-mdn"]:
-            rmse = self._fit_nonbayes()
+            rmse, rmse_val = self._fit_nonbayes()
         elif self.method == "vi_bayes":
             rmse = self._fit_bayes()
-        return rmse
+        return rmse, rmse_val
 
     def predict(self,X,Nsample=None):
         """
         Make predictions. For VI Bayes methods, can improve predictive
-        uncertainty by increasing number of samples drawn from posterior 
+        uncertainty by increasing number of samples drawn from posterior
         predictive distribution - see method : set_Nensemble()
 
         Arguments
         ---------
         Nsample : int
-            For bayes method. If given, the number of samples drawn from 
-            approximate posterior distribution. Otherwise, self.Nensemble 
+            For bayes method. If given, the number of samples drawn from
+            approximate posterior distribution. Otherwise, self.Nensemble
             samples are drawn
         """
         # use shift and scaling from training data
         xs_test = self.train_data.get_xs_standardized(X)
-        
+
         # numer of samples to draw from approx. posterior or MC dropout
         if Nsample is None: Nsample = self.Nensemble
 
@@ -161,7 +167,7 @@ class regressor():
             mean,var = self._predict_bayes(xs_test,Nsample)
         else: raise NotImplementedError
 
-        return mean.flatten(),np.sqrt(var).flatten()
+        return mean,np.sqrt(var)
 
     def save(self,prefix="model"):
         """
@@ -182,7 +188,7 @@ class regressor():
         if not os.path.isdir(prefix): raise GeneralError("Cannot find save directory {}".format(prefix))
         with open('{}/{}.pckl'.format(prefix,prefix),'rb') as f:
             attributes = pickle.load(f)
-        f.close() 
+        f.close()
         for _attr in attributes:
             # load all non tf attributes
             setattr(self,_attr,attributes[_attr])
@@ -191,12 +197,12 @@ class regressor():
             self._load_nonbayes(prefix)
         elif self.method == "bayes":
             self._load_bayes(prefix)
-    
+
     def _init_MLPGaussianRegressor(self):
         combine_args = self.method_args
         for _attr in ["activation","dtype"]:
             combine_args.update({_attr:getattr(self,_attr)})
-        
+
         if self.method == "nonbayes-mdn":
             combine_args.update({"num_components":self.Nensemble})
 
@@ -204,18 +210,20 @@ class regressor():
         args = toy_argparse(combine_args)
 
         if self.method == "nonbayes":
+            final = [int(self.y_dim+self.y_dim*(self.y_dim+1)/2)]
+
             self.session["ensemble"] = [MLPGaussianRegressor(args, \
-                    [self.D]+list(self.layers)+[2], 'model'+str(i)) for i in range(self.Nensemble)] 
+                    [self.D]+list(self.layers)+final, 'model'+str(i)) for i in range(self.Nensemble)]
         elif self.method == "nonbayes_dropout":
             # single instance, sample same net with different nodes dropped each sample
-            self.session["ensemble"] = [MLPDropoutGaussianRegressor(args,[self.D]+list(self.layers)+[2], 'model1')] 
+            self.session["ensemble"] = [MLPDropoutGaussianRegressor(args,[self.D]+list(self.layers)+[2], 'model1')]
         elif self.method == "nonbayes-mdn":
             self.session["ensemble"] = [MLPDensityMixtureRegressor(args,\
                     [self.D]+list(self.layers)+[3*self.Nensemble], 'model1')]
 
     def _fit_nonbayes(self):
         self.session = {"tf_session":None,"saver":None,"ensemble":None}
-        
+
         # define tf variables
         self._init_MLPGaussianRegressor()
 
@@ -229,22 +237,29 @@ class regressor():
             self.session["tf_session"].run(tf.assign(model.output_mean,self.train_data.target_mean))
             self.session["tf_session"].run(tf.assign(model.output_std,self.train_data.target_std))
 
+
         # keep value of minibatch loss so convergence can be checked at end
         self.loss = [[] for ii in range(self.Nensemble)]
+        self.rmse = [[] for ii in range(self.Nensemble)]
 
-        maxiter_per_minibatch = 10
+        maxiter_per_minibatch = int(1.0/self.batch_size)#10
         num_minibatch = max([1,int(self.maxiter/maxiter_per_minibatch)])
 
         #for itr in range(self.maxiter):
         #    for model in self.session["ensemble"]:
         for model_idx,model in enumerate(self.session["ensemble"]):
+            print("Training Network {} of {}".format(model_idx+1,self.Nensemble))
             cntr = 0
             for batch_itr in range(num_minibatch):
                 # can train on distinct mini batches for each ensemble
-                x,y = self.train_data.next_batch()
-                feed = {model.input_data: x, model.target_data: y}
+                # x,y = self.train_data.next_batch()
+                # feed = {model.input_data: x, model.target_data: y}
+                x_batches,y_batches = self.train_data.next_batch_set()
+                if (np.mod(batch_itr,10)==0):
+                    print("epoch: {} of {}".format(batch_itr,num_minibatch))
 
                 for minibatch_iter in range(maxiter_per_minibatch):
+                    feed = {model.input_data: x_batches[minibatch_iter], model.target_data: y_batches[minibatch_iter]}
 
                     if self.method == "nonbayes_dropout":
                         feed.update({model.dr : self.method_args["keep_prob"]})
@@ -258,6 +273,7 @@ class regressor():
 
                     if np.mod(cntr,10)==0:
                         self.loss[model_idx].append(loss)
+                        self.rmse[model_idx].append(np.sqrt(mse(self.predict(self.train_data.xs_val)[0],self.train_data.ys_val,multioutput='raw_values')))
 
                     cntr += 1
                     if np.mod(cntr,100)==0:
@@ -275,24 +291,41 @@ class regressor():
                 loss_before = self.session["tf_session"].run([model.loss_value],feed)
                 for cntr in range(self.maxiter):
                     _ = self.session["tf_session"].run([model.train_op],feed)
-                
+
                 loss_after = self.session["tf_session"].run([model.loss_value],feed)
 
                 print("loss before = {} loss after = {}".format(loss_before,loss_after))
 
         # for easy slicing upon analysis
         self.loss = np.asarray(self.loss)
+        self.rmse = np.asarray(self.rmse)
 
         # pass in standardized data
         pred_mean,pred_std = self._predict_nonbayes(self.train_data.xs_standardized,self.Nensemble)
-        
-        rmse = np.sqrt(mse(self.train_data.ys,pred_mean))
-        return rmse
+        val_xs = self.train_data.get_xs_standardized(self.train_data.xs_val)
+        pred_mean_val,pred_std_val = self._predict_nonbayes(val_xs,self.Nensemble)
+
+        rmse = np.sqrt(mse(self.train_data.ys,pred_mean,multioutput='raw_values'))
+        rmse_val = np.sqrt(mse(self.train_data.ys_val,pred_mean_val,multioutput='raw_values'))
+        return rmse, rmse_val
 
     def _predict_nonbayes(self,xs,Nsample):
+        num_values = xs.shape[0]
+        def batch_cov(x,swap_axes=True):
+            #batch dimension is 1 (starting from 0)
+            #change that to 0 to start
+            if (swap_axes):
+                x = np.swapaxes(x,1,0)
+            N = x.shape[1]
+            if (N==1):
+                return np.zeros(x.shape)
+            m = x - x.sum(1,keepdims=True)/N
+            batch_cov = np.einsum('nji,njk->nik',m,m)/(N-1)
+            return batch_cov
+
         if self.method in ["nonbayes_dropout","nonbayes"]:
-            en_mean = 0.0
-            en_var = 0.0
+            means = np.zeros((self.Nensemble,num_values,self.train_data.y_dim))
+            vars = np.zeros((self.Nensemble,num_values,self.train_data.y_dim,self.train_data.y_dim))
             cntr = 0
 
             for ii,model in enumerate(self.session["ensemble"]):
@@ -300,24 +333,29 @@ class regressor():
                     num_samples = Nsample
                 else:
                     num_samples = 1
-                
+
                 for _draw_sample in range(num_samples):
 
                     feed = {model.input_data: xs}
                     if self.method == "nonbayes_dropout":
                         feed.update({model.dr : self.method_args["keep_prob"]})
                     mean,var = self.session["tf_session"].run([model.mean,model.var],feed)
-                    en_mean += mean
-                    en_var += var + mean**2
-                        
+                    vars[ii,:,:,:] = var#np.linalg.norm(np.linalg.eigvals(var),axis=1)
+                    means[ii,:,:] = mean
+                    #var = np.linalg.eigvals(val)
+                        #var = np.array([var[:,0,0],var[:,1,1]]).T
+                    # en_mean += mean
+                    # en_var += var + np.sqrt(np.sum(np.square(mean)))
+
                     # count number of samples drawn
                     cntr += 1
-        
-            en_mean /= cntr
-            en_var = en_var/cntr - en_mean**2
+
+            en_mean = np.mean(means,axis=0)#dimensions of num_values, y_dim
+            en_var = np.mean(vars,axis=0) - batch_cov(means-en_mean)#np.sqrt(np.sum(np.square(en_mean)))#en_mean**2
+            en_var = np.linalg.norm(np.linalg.eigvals(en_var),axis=1)
         elif self.method == "nonbayes-mdn":
             model = self.session["ensemble"][0]
-            
+
             feed = {model.input_data:xs}
 
             # shape = [N,k] for gaussian mixture mean,variance and mixing coefficients
@@ -340,7 +378,7 @@ class regressor():
             # en_var_i = sum_k pi_ik * [ var_ik + (mu_ik - en_mean_i)**2 ]
             #en_var = np.diag(np.dot(var + np.square( mu - np.tile(en_mean,(K,1)).T ) , pi.T))
             en_var = np.einsum("ij,ij->i",var_term,pi)
-            
+
             #np.testing.assert_array_almost_equal(en_var,\
             #        np.diag(np.dot(var + np.square( mu - np.tile(en_mean,(K,1)).T ) , pi.T)))
         else: raise NotImplementedError
@@ -352,14 +390,14 @@ class regressor():
         for _attr in ["activation","dtype"]:
             combine_args.update({_attr:getattr(self,_attr)})
         args = toy_argparse(combine_args)
-        
-        self.session["bayes_net"] = vi_bayes(args=args,layers=[self.D]+list(self.layers)) 
+
+        self.session["bayes_net"] = vi_bayes(args=args,layers=[self.D]+list(self.layers))
 
     def _fit_bayes(self):
         self.session = {"tf_session":None,"saver":None,"bayes_net":None}
 
         # initialise tf variables
-        self._init_bayes() 
+        self._init_bayes()
 
         rmse = self.session["bayes_net"].fit(X=self.train_data.xs_standardized,y=self.train_data.ys)
         return rmse
@@ -376,31 +414,31 @@ class regressor():
             attributes.update({_attr:getattr(self,_attr)})
         with open("./{}/{}.pckl".format(prefix,prefix),"wb") as f:
             pickle.dump(attributes,f)
-        f.close()            
+        f.close()
         self.session["saver"].save(self.session["tf_session"],"./{}/{}".format(prefix,prefix))
 
         # save tf variables to numpy arrays for use with sklearn
-        self._save_tf_to_np(prefix)
+        #self._save_tf_to_np(prefix)
 
     def _save_tf_to_np(self,prefix):
         # size of ensemble
         Nens = len([_v for _v in tf.global_variables() if "MLP/weights_0:0" in _v.name and "RMSProp" not in _v.name])
-        
+
         num_weight_layers = len([_v for _v in tf.global_variables() if "model0MLP/weights_" in _v.name \
-                and "RMSProp" not in _v.name]) 
-        
+                and "RMSProp" not in _v.name])
+
         num_nodes = np.asarray([int(_v.shape[0]) for _v in tf.global_variables() if "model0MLP/weights_" in _v.name\
                 and "RMSProp" not in _v.name])
-        
+
         order = np.asarray([int(_v.name.split(':')[0].split("weights_")[-1]) for _v in tf.global_variables() \
             if "model0MLP/weights" in _v.name and "RMSProp" not in _v.name])
-        
+
         idx = np.argsort(order)
-        
+
         layer_units = np.asarray(list(num_nodes[idx]) + [2])
-        
+
         hidden_layer_sizes = num_nodes[:-1]
-       
+
         weights = [[None for jj in range(num_weight_layers)] for ii in range(Nens)]
         biases =  [[None for jj in range(num_weight_layers)] for ii in range(Nens)]
         preconditioning = [{"mean":None,"std":None} for ii in range(Nens)]
@@ -409,16 +447,16 @@ class regressor():
                 val = self.session["tf_session"].run([_v for _v in tf.global_variables() if \
                         "model{}target_stats/{}".format(ii,_var) in _v.name])[0]
                 preconditioning[ii][_var] = val
-        
+
             for ww in range(num_weight_layers):
                 weights[ii][ww] = self.session["tf_session"].run([_v for _v in tf.global_variables() \
                         if "model{}MLP/weights_{}".format(ii,ww) in _v.name and "RMSProp" not in _v.name])[0]
                 biases[ii][ww]  = self.session["tf_session"].run([_v for _v in tf.global_variables() \
                         if "model{}MLP/biases_{}".format(ii,ww) in _v.name and "RMSProp" not in _v.name])[0]
-        
+
         data = {"preconditioning":preconditioning,"activation":self.activation,"hidden_layer_sizes":hidden_layer_sizes,\
             "layer_units":layer_units,"weights":weights,"biases":biases,"Nensemble":Nens}
-        
+
         with open("{}/netparams-{}.pckl".format(prefix,prefix),"wb") as f:
             pickle.dump(data,f)
         f.close()
