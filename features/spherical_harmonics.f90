@@ -1,6 +1,7 @@
 module spherical_harmonics
     use config
-    
+    use utility, only : python_int
+
     implicit none
 
     contains
@@ -10,14 +11,14 @@ module spherical_harmonics
             INTEGER i,ll
             REAL(8) fact,oldfact,pll,pmm,pmmp1,omx2,PI
             PARAMETER(PI=3.1415927d0)
-            
+
             if(m.lt.0.or.m.gt.l.or.abs(x).gt.1.) then
                 write(*,*) 'bad arguments in plgndr'
                 call exit(0)
-            end if            
+            end if
 
             pmm=1.
-            
+
             if(m.gt.0) then
                 omx2=(1.-x)*(1.+x)
                 fact=1.
@@ -26,11 +27,11 @@ module spherical_harmonics
                     fact=fact+2.
                 enddo
             endif
-            
+
             pmm=sqrt((2*m+1)*pmm/(4.*PI))
-            
+
             if(mod(m,2).eq.1) pmm=-pmm
-            
+
             if(l.eq.m) then
                 plgndr_dep=pmm
             else
@@ -88,7 +89,7 @@ module spherical_harmonics
         end function plgndr_s
 
         real(8) function plgndr(l,m,x)
-            ! This contains the factor 
+            ! This contains the factor
             ! sqrt{  [2*l+1]/[4*pi] *factorial(l-m)/factorial(l+m)  }
             implicit none
 
@@ -107,7 +108,7 @@ module spherical_harmonics
                     fact = fact + 2.0d0
                 end do
             end if
-            
+
             pmm = sqrt( dble(2*m+1)*pmm/12.5663706144d0 )
             if(mod(m,2).eq.1) pmm = -pmm
 
@@ -130,10 +131,10 @@ module spherical_harmonics
                 end if
             end if
         end function plgndr
-        
+
         real(8) function plgndr_sub1(x,m)
             implicit none
-            
+
             !* args
             real(8),intent(in) :: x
             integer,intent(in) :: m
@@ -141,7 +142,7 @@ module spherical_harmonics
             !* scratch
             real(8) :: pmm,omx2,fact,oldfact
             integer :: i
-            
+
             pmm = 1.0d0
             if (m.gt.0) then
                 omx2 = (1.0d0-x)*(1.0d0+x)
@@ -151,15 +152,15 @@ module spherical_harmonics
                     fact = fact + 2.0d0
                 end do
             end if
-            
+
             pmm = sqrt( dble(2*m+1)*pmm*0.07957747155d0 )
             if(mod(m,2).eq.1) pmm = -pmm
-            
+
             plgndr_sub1 = pmm
         end function plgndr_sub1
 
         real(8) function plgndr_dev(l,m,x,x_pmm)
-            ! This contains the factor 
+            ! This contains the factor
             ! sqrt{  [2*l+1]/[4*pi] *factorial(l-m)/factorial(l+m)  }
             !
             ! m=[0,l] is always positive for this function
@@ -176,7 +177,7 @@ module spherical_harmonics
             if(l.eq.m) then
                 plgndr_dev = pmm
             else
-                pmmp1 = x*buffer_sph_plgndr_2(m)*pmm 
+                pmmp1 = x*buffer_sph_plgndr_2(m)*pmm
                 if (l.eq.m+1) then
                     plgndr_dev = pmmp1
                 else
@@ -198,7 +199,7 @@ module spherical_harmonics
 
             real(8), intent(in) :: first,increment
             integer, intent(in) :: n
-            
+
             real(8), dimension(n) :: arth_d
             integer :: k,k2,npar_arth,npar2_arth
             real(8) :: temp
@@ -229,15 +230,15 @@ module spherical_harmonics
 
         real(8) function plgndr_debug(l,m,x)
             implicit none
-            
+
             !* args
             real(8),intent(in) :: x
             integer,intent(in) :: l,m
 
-       
+
             !* scratch
             real(8) :: res
-           
+
             if ((m.lt.0).or.(m.gt.l)) then
                 write(*,*) "0 <= m <= l is not true in plgndr_debug"
                 call exit(0)
@@ -300,7 +301,7 @@ module spherical_harmonics
             !* scratch
             real(8) :: klm,plm
             complex(8) :: tmp
-    
+
             !* constant now in plgndr
             klm = 1.0d0!sqrt(((2.0d0*dble(l)+1.0d0)*dble(factorial_duplicated(l-m)))/(12.5663706144d0*dble(factorial_duplicated(l+m))))
 
@@ -323,7 +324,7 @@ module spherical_harmonics
 
             integer,intent(in) :: x
 
-            if (x.eq.0) then    
+            if (x.eq.0) then
                 res = 1
             else if (x.gt.0) then
                 res = x*factorial_duplicated(x-1)
@@ -396,11 +397,11 @@ module spherical_harmonics
                     c_nlm(mm) = c_nlm(mm) + f_radial(ii)*sph_harm(mm,l,theta,phi)
                 end do
                 qml(mm) = abs(c_nlm(mm))**2
-            end do                
+            end do
             ql_bruteforce = sum(qml)
         end function ql_bruteforce
-        
-        
+
+
         real(8) function cg_su2( j1t, j2t, j3t, m1t, m2t, m3t )
             !-------------------------------------------------------------------------
             !                             ****************
@@ -420,7 +421,7 @@ module spherical_harmonics
             ! , 159, (2004), Eslevier
             !     ------------------------------------------------------------------
             implicit none
-            
+
             !* args
             integer j1t, j2t, j3t, m1t, m2t, m3t
 
@@ -429,18 +430,18 @@ module spherical_harmonics
             real(8) :: dc, dtop, dbot, dsum, dwr3
             real(8) :: dlogf(0:2000)
 
-            !real(8) :: dexp, dlogf  
+            !real(8) :: dexp, dlogf
             !logical :: btest
             !common / BKDF / dlogf(0:2000)
 
             dwr3 = 0.d0
             if( m1t+m2t-m3t .ne. 0 ) then
-                cg_su2 = dwr3 
+                cg_su2 = dwr3
             end if
-            
+
             dc = dlogf(j1t+j2t-j3t) + dlogf(j2t+j3t-j1t) + dlogf(j3t+j1t-j2t) - dlogf(j1t+j2t+j3t+2)
-            
-            
+
+
             i1 = j3t - j2t + m1t
             i2 = j3t - j1t - m2t
             i3 = j1t + j2t - j3t
@@ -520,7 +521,7 @@ module spherical_harmonics
 
                     ! sqrtarg is int so need to divide after casting to double
                     sqrtres = sqrt(sqrtarg / buffer_factorial(python_int(min_array(4))))
-                    
+
                     min_array(1) = l_1 + m_2 - l
                     min_array(2) = l_2 - m_1 - l
                     min_array(3) = 0.0d0
@@ -547,16 +548,5 @@ module spherical_harmonics
             end if
         end function cg_varshalovich
 
-        integer function python_int(x)
-            ! python int(x) = floor(x) for x>0 , python int(x) = ceil(x), x<0
-            implicit none
 
-            real(8),intent(in) :: x
-
-            if (x.ge.0.0d0) then
-                python_int = int(floor(x))
-            else
-                python_int = int(ceiling(x))
-            end if
-        end function python_int
-end module spherical_harmonics 
+end module spherical_harmonics

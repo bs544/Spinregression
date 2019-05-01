@@ -10,7 +10,7 @@ module config
 
     type config_type
         real(8) :: cell(1:3,1:3)                            ! real space (A)
-        real(8),allocatable :: local_positions(:,:)         ! fractional coordinates /(A) 
+        real(8),allocatable :: local_positions(:,:)         ! fractional coordinates /(A)
         real(8),allocatable :: all_positions(:,:)           ! cartesian coordinates of relevant atom images (A)
         integer :: nall                                     ! atoms in ultracell
     end type config_type
@@ -35,7 +35,7 @@ module config
     end type bispect_param_type
 
     !* scalar global vars
-    logical, public :: global_features = .false.            ! cnlm = 1/Natm sum_i Y_mli gni for global features 
+    logical, public :: global_features = .false.            ! cnlm = 1/Natm sum_i Y_mli gni for global features
 
     !* type instances
 
@@ -43,10 +43,10 @@ module config
     type(bispect_param_type),public :: bispect_param        ! instance of bispectrum parameters
 
     !* buffer arrays to remove redunant computation
-    
+
     real(8),allocatable :: buffer_spherical_harm_const(:,:) ! constant to spherical harmonics (m,l)
     complex(8),allocatable :: buffer_spherical_harm(:,:,:)  ! Y_iml
-    real(8),allocatable :: buffer_radial_phi_Nalpha(:)      ! normalizing constant for alpha       
+    real(8),allocatable :: buffer_radial_phi_Nalpha(:)      ! normalizing constant for alpha
     real(8),allocatable :: buffer_radial_g(:,:)             ! radial components for given grid point
     real(8),allocatable :: buffer_spherical_p(:,:,:)        ! associated legendre polynomial
     real(8),allocatable :: buffer_polar_sc(:,:,:)           ! [cos(theta),sin(theta) for neighbour for grid point]
@@ -59,6 +59,7 @@ module config
     real(8),allocatable :: buffer_sph_plgndr_3(:,:)         ! (ll,mm) sqrt( dble(4*(ll**2)-1)/dble((ll**2)-(m**2)) )
     complex(8),allocatable :: buffer_cnlm(:,:,:)            ! environment projection onto bases
     integer,allocatable :: buffer_lvalues(:,:)              ! l,l1,l2 for which CG has nonzero values
+    integer,allocatable :: buffer_c2_mvalues(:,:)           ! l,m_1,m_2,m_3 for which the axial bispectrum gives unique values
 
     !* omp directives for private globally scoped variables
     !$omp threadprivate(buffer_radial_g)
@@ -70,13 +71,13 @@ module config
 
     contains
         !* methods
-        
+
         subroutine bispect_param_type__set_rcut(type_instance,rcut)
             implicit none
 
             type(bispect_param_type),intent(inout) :: type_instance
             real(8),intent(in) :: rcut
-            
+
             type_instance%rcut = rcut
         end subroutine bispect_param_type__set_rcut
 
@@ -86,7 +87,7 @@ module config
             type(bispect_param_type),intent(inout) :: type_instance
             integer,intent(in) :: calc_type
 
-            if ((calc_type.lt.0).or.(calc_type.gt.1)) then
+            if ((calc_type.lt.0).or.(calc_type.gt.2)) then
                 call error_message("bispect_param_type__set_calc_type","unsupported calculation type")
             end if
             type_instance%calc_type = calc_type
@@ -116,11 +117,11 @@ module config
 
             !* scratch
             integer :: dim(1:2),ncells,natm,ii,jj,nall
-            real(8),allocatable :: arraycopy(:,:)           
- 
+            real(8),allocatable :: arraycopy(:,:)
+
             dim = shape(neigh_images)
             ncells = dim(2)
-            
+
             if(.not.allocated(structure%local_positions)) then
                 call error_message("config_type__generate_ultracell","initialise local_positions")
             end if
@@ -128,7 +129,7 @@ module config
             natm = dim(2)
 
             nall = natm*ncells
-            
+
             if(allocated(structure%all_positions)) deallocate(structure%all_positions)
             allocate(structure%all_positions(1:3,1:nall))
 
@@ -146,8 +147,8 @@ module config
 
             !* cartesians
             call dgemm('n','n',3,nall,3,1.0d0,structure%cell,3,arraycopy,3,0.0d0,&
-            &structure%all_positions,3) 
-            
+            &structure%all_positions,3)
+
             structure%nall = nall
 
             deallocate(arraycopy)
@@ -163,7 +164,7 @@ module config
 
         subroutine config_type__set_local_positions(positions)
             implicit none
-            
+
             !* args
             real(8),intent(in) :: positions(:,:)
 
@@ -178,15 +179,15 @@ module config
 
             allocate(structure%local_positions(dim(1),dim(2)))
             structure%local_positions = positions
-        
+
             !* wrap positions back to local cell (0<= fractional coords <=1)
             call config_type__wrap_atom_positions()
         end subroutine config_type__set_local_positions
-    
+
         subroutine config_type__generate_neighbouring_polar(gridpoint,polar)
             !* Y_lm(theta,phi) = k_lm P_m(cos(theta)) * exp(i phi)
 
-            !use, intrinsic :: ieee_arithmetic            
+            !use, intrinsic :: ieee_arithmetic
 
             implicit none
 
@@ -198,7 +199,7 @@ module config
             real(8) :: rcut2,dr_vec(1:3)
             real(8) :: polar_buffer(1:3,1:structure%nall)
             integer :: ii,cntr
-            
+
             if(allocated(polar)) then
                 deallocate(polar)
             end if
@@ -211,22 +212,22 @@ module config
             do ii=1,structure%nall,1
                 !* cartesian displacement
                 dr_vec = structure%all_positions(:,ii) - gridpoint
-                
+
                 if (sum(dr_vec**2).le.rcut2) then
                     cntr = cntr + 1
                     call cartesian_to_polar_array(dr_vec,cntr,polar_buffer)
                     !polar_buffer(1,cntr) = dnrm2(3,dr_vec,1)
                     !polar_buffer(2,cntr) = dr_vec(3) / polar_buffer(1,cntr)
-                    !if (.not.ieee_is_finite(polar_buffer(2,cntr))) then 
+                    !if (.not.ieee_is_finite(polar_buffer(2,cntr))) then
                     !    !* r=0, use (phi,theta) = 0 in this case
                     !    polar_buffer(2,cntr) = 0.0d0
                     !    polar_buffer(3,cntr) = 0.0d0
-                    !else     
+                    !else
                     !    polar_buffer(2,cntr) = acos(polar_buffer(2,cntr))   ! inclination angle (theta)
                     !    polar_buffer(3,cntr) = atan2(dr_vec(2),dr_vec(1))   ! azimuth angle     ( -pi <= phi <= pi )
                     !end if
 
-                end if 
+                end if
             end do
 
             if (cntr.gt.0) then
@@ -234,10 +235,10 @@ module config
                 polar(:,:) = polar_buffer(:,1:cntr)
             end if
         end subroutine config_type__generate_neighbouring_polar
-                    
+
         subroutine cartesian_to_polar_array(dr_vec,idx,polar_buffer)
-            use, intrinsic :: ieee_arithmetic            
-            
+            use, intrinsic :: ieee_arithmetic
+
             implicit none
 
             real(8),intent(in) :: dr_vec(1:3)
@@ -246,18 +247,18 @@ module config
 
             polar_buffer(1,idx) = dnrm2(3,dr_vec,1)
             polar_buffer(2,idx) = dr_vec(3) / polar_buffer(1,idx)
-            if (.not.ieee_is_finite(polar_buffer(2,idx))) then 
+            if (.not.ieee_is_finite(polar_buffer(2,idx))) then
                 !* r=0, use (phi,theta) = 0 in this case
                 polar_buffer(2,idx) = 0.0d0
                 polar_buffer(3,idx) = 0.0d0
-            else     
+            else
                 polar_buffer(2,idx) = acos(polar_buffer(2,idx))   ! inclination angle (theta)
                 polar_buffer(3,idx) = atan2(dr_vec(2),dr_vec(1))   ! azimuth angle     ( -pi <= phi <= pi )
             end if
         end subroutine cartesian_to_polar_array
 
         subroutine config_type__get_global_polar(polar)
-            ! get all polar coordinates for global features, involves 
+            ! get all polar coordinates for global features, involves
             ! sum_{local_atoms} sum_{neighbours to local atom}
             implicit none
 
@@ -298,7 +299,7 @@ module config
                     dr_vec = structure%all_positions(:,jj) - drii
 
                     dr2 = sum(dr_vec**2)
-        
+
                     if ((dr2.le.rcut2).and.(dr2.gt.amin)) then
                         !* valid local interaction
                         cntr = cntr + 1
@@ -308,7 +309,7 @@ module config
                     end if
                 end do loop_nonlocal_atoms
             end do loop_local_atoms
-            
+
             if (cntr.gt.0) then
                 if (allocated(polar)) then
                     deallocate(polar)
@@ -326,7 +327,7 @@ module config
             integer :: dim(1:2),ii,jj
 
             structure%local_positions = structure%local_positions - floor(structure%local_positions)
-    
+
             dim = shape(structure%local_positions)
             do ii=1,dim(2)
                 do jj=1,3

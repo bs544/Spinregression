@@ -4,11 +4,11 @@ module features
     use config
     use io, only : error_message
     use boundaries, only : find_neighbouring_images
-    use utility, only : load_balance_alg_1,get_m2_limits,cg_nonzero
+    use utility, only : load_balance_alg_1,get_m2_limits,cg_nonzero,sort_array,python_int
 
     implicit none
-   
-    !* blas/lapack 
+
+    !* blas/lapack
     real(8),external :: ddot
 
     contains
@@ -17,7 +17,7 @@ module features
 
             integer,intent(in) :: lmax,nmax,calc_type
 
-            integer :: res,nn,ll,ll_1,ll_2
+            integer :: res,nn,ll,ll_1,ll_2,arr_shape(2)
 
             if (calc_type.eq.0) then
                 !* powerspectrum only, l=[0,lmax] , n=[1,nmax]
@@ -29,7 +29,7 @@ module features
                     do ll=0,lmax
                         do ll_1=0,lmax
                             do ll_2=ll_1,lmax
-                                ! feature invariant to ll_1,ll_2 permutation, 
+                                ! feature invariant to ll_1,ll_2 permutation,
                                 ! only want unique pair combinations
 
                                 if (cg_nonzero(ll,ll_1,ll_2)) then
@@ -40,6 +40,27 @@ module features
                         end do
                     end do
                 end do
+            else if (calc_type.eq.2) then
+                res = 0
+
+
+                res = calc_2_cardinality(nmax,lmax)
+
+                ! do nn = 1,nmax
+                !     do ll = 0,lmax
+                !         !reusing l_1 and L_2 as m_1 and m_2 to avoid waste
+                !         do ll_1 = -ll,ll
+                !             do ll_2 = ll_1,ll
+                !                 !bispectrum will be invariant to permutations of m_1 and m_2
+                !                 !only want unique values
+                !                 !also need m_1 + m_2 to be less than l
+                !                 if (abs(ll_1+ll_2).le.ll) then
+                !                     res = res +1
+                !                 end if
+                !             end do
+                !         end do
+                !     end do
+                ! end do
             else
                 call error_message("check_cardinality","unsupported calculation type")
             end if
@@ -50,7 +71,7 @@ module features
         &lmax,nmax,calc_type,buffer_size,X)
             ! Compute bispectrum features as in [1]
             !
-            ! x_nl = sum_{m=-l}^{m=l} c_{nlm}^* c_{nlm} 
+            ! x_nl = sum_{m=-l}^{m=l} c_{nlm}^* c_{nlm}
             !
             ! Arguments
             ! ---------
@@ -60,7 +81,7 @@ module features
             !
             ! Note
             ! ----
-            ! This routine uses full periodic image convention, not nearest 
+            ! This routine uses full periodic image convention, not nearest
             ! image
             !
             ! [1] PHYSICAL REVIEW B 87, 184115 (2013)
@@ -74,6 +95,7 @@ module features
             logical,intent(in) :: parallel
             integer,intent(in) :: lmax,nmax,calc_type,buffer_size
             real(8),intent(inout) :: X(:,:)
+
 
             !* scratch
             integer :: dim(1:2),natm,ngrid,ii,loop(1:2)
@@ -90,12 +112,12 @@ module features
             !===============!
 
             dim=shape(atom_positions)
-        
+
             !* number of atoms in unit cell
             natm = dim(2)
 
             dim = shape(grid_coordinates)
-        
+
             !* number of  density points to calculate features for
             ngrid = dim(2)
 
@@ -116,17 +138,17 @@ module features
 
             !* initialise shared config info
             call config_type__set_cell(cell)
-            call config_type__set_local_positions(atom_positions)   
+            call config_type__set_local_positions(atom_positions)
 
-            !* cartesians of all relevant atom images 
-            
+            !* cartesians of all relevant atom images
+
             !* list of relevant images
             call find_neighbouring_images(neigh_images,buffer_size)
-            
+
             !* generate cartesians of all relevant atoms
             call config_type__generate_ultracell(neigh_images)
-       
-            !* remove redunancy 
+
+            !* remove redunancy
             call init_buffer_all_general()
 
             if (.not.parallel) then
@@ -150,15 +172,15 @@ module features
                 !$omp& default(shared),&
                 !$omp& private(thread_idx,polar,ii,loop,num_threads),&
                 !$omp& copyin(buffer_cnlm)
-            
+
                 !* [0,num_threads-1]
                 thread_idx = omp_get_thread_num()
-                
+
                 num_threads = omp_get_max_threads()
 
                 !* evenly split workload
                 call load_balance_alg_1(thread_idx,num_threads,ngrid,loop)
-                
+
                 do ii=loop(1),loop(2),1
                     !* generate [[r,theta,phi] for atom neighbouring frid point ii]
                     call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar)
@@ -167,13 +189,12 @@ module features
                         !* no atoms within local approximation
                         X(:,ii) = 0.0d0
                     else
-                        !* get type1 features
-                        call features_bispectrum_type1(polar,X(:,ii)) 
+                        call features_bispectrum_type1(polar,X(:,ii))
                     end if
                 end do
-                
+
                 !$omp end parallel
-            end if            
+            end if
         end subroutine calculate_local
 
         subroutine calculate_global(cell,atom_positions,rcut,lmax,nmax,&
@@ -226,7 +247,7 @@ module features
 
             !* remove redundancy
             call init_buffer_all_general()
-       
+
             !* get polar coordinates of all interactions
             call config_type__get_global_polar(polar)
 
@@ -246,7 +267,7 @@ module features
             !* args
             real(8),intent(in) :: polar(:,:)
             real(8),intent(inout) :: x(:)
-            
+
             !* scratch
             integer :: dim(1:2),cntr
             integer :: Nneigh,ll,nn,ii,mm
@@ -260,16 +281,16 @@ module features
 
             !* redundancy arrays specific to grid point
             call init_buffer_all_polar(polar)
-            
+
             cntr = 1
             do ll=0,bispect_param%lmax,1
-                do nn=1,bispect_param%nmax,1   
+                do nn=1,bispect_param%nmax,1
                     val_ln = 0.0d0
-     
+
                     ! reduce page thrashing later
                     tmp3 = buffer_spherical_harm_const(0,ll)
-            
-                    do mm=1,ll 
+
+                    do mm=1,ll
                         reduce_array = 0.0d0
 
                         neighbour_loop : do ii=1,Nneigh,1
@@ -280,13 +301,13 @@ module features
 
                             reduce_array = reduce_array + tmp2
                         end do neighbour_loop
-                        
+
                         val_ln = val_ln + buffer_spherical_harm_const(mm,ll)*sum(reduce_array**2)
                     end do
-                    
+
                     !* count -,+mm
                     val_ln = val_ln*2.0d0
-                    
+
                     !* m=0 contribution : cos(m phi)=1,sin(m phi)=0
                     val_ln = val_ln + ddot_wrapper(buffer_radial_g(:,nn),buffer_spherical_p(:,0,ll))**2 * tmp3
 
@@ -296,7 +317,8 @@ module features
                 end do
             end do
         end subroutine features_bispectrum_type1_deprecated
-        
+
+
         subroutine features_bispectrum_type1(polar,x)
             ! concacenation order:
             !
@@ -309,17 +331,17 @@ module features
             !* args ! CHANGE INOUT TO IN
             real(8),intent(inout) :: polar(:,:)
             real(8),intent(inout) :: x(:)
-            
+
             !* scratch
             integer :: cntr,lmax,num_l_triplets,dim(1:2)
             integer :: ll,nn,mm_2_limits(1:2)
-            integer :: ll_1,ll_2,ll_3,mm_1,mm_2,mm_3
+            integer :: ll_1,ll_2,ll_3,mm_1,mm_2,mm_3, ii
             real(8) :: res_real,cg_coeff
             complex(8) :: buffer(1:2),res_cmplx
-            
+
             !* redundancy arrays specific to grid point
             call init_buffer_all_polar(polar)
-           
+
             lmax = bispect_param%lmax
 
             cntr = 1
@@ -334,10 +356,10 @@ module features
                     end do
                 end do
             else if (bispect_param%calc_type.eq.1) then
-            
+
                 dim = shape(buffer_lvalues)
                 num_l_triplets = dim(2)
-        
+
                 nn_loop : do nn=1,bispect_param%nmax
                     ll_loop : do ll=1,num_l_triplets
                         !* |l2+l3| <= l1 <= l2+l3 are only nonzero CG coefficients
@@ -353,40 +375,70 @@ module features
 
                             ! m1 = m2 + m3 are only nonzero CG coefficients
                             call get_m2_limits(ll_2,ll_3,mm_1,mm_2_limits)
-                    
+
                             mm_2_loop : do mm_2=mm_2_limits(1),mm_2_limits(2)
                                 mm_3 = mm_1 - mm_2
-                                
+
                                 !buffer(2) = buffer(1)*buffer_cnlm(mm_2,ll_2,nn)
-                                
+
                                 cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
                                 res_cmplx = res_cmplx + buffer(1)*buffer_cnlm(mm_2,ll_2,nn)*buffer_cnlm(mm_3,ll_3,nn)*cg_coeff
 
                             end do mm_2_loop
                         end do mm_1_loop
-                    
+
                         X(cntr) = real(res_cmplx)
                         cntr = cntr + 1
-                    
+
                     end do ll_loop
                 end do nn_loop
+            else if (bispect_param%calc_type.eq.2) then
+              call check_calc_2_buffer()
+
+              dim = shape(buffer_c2_mvalues)
+              num_l_triplets = dim(2)
+
+              do nn=1,bispect_param%nmax!nn loop
+                  do ii=1,num_l_triplets!ll loop
+                      !l can be any value from 0 to lmax
+                      !m_1 <= m_2
+                      !m_3 = m_1 + m_2
+                      !m_1,m_2,m_3 <= l
+                      !only have unique combination of |m_1|, |m_2|, |m_3|
+                      !all of this is accounted for in buffer_c2_mvalues
+                      ll = buffer_c2_mvalues(1,ii)
+                      mm_1 = buffer_c2_mvalues(2,ii)
+                      mm_2 = buffer_c2_mvalues(3,ii)
+                      mm_3 = buffer_c2_mvalues(4,ii)
+
+                      buffer(1) = buffer_cnlm(mm_1,ll,nn)
+                      res_cmplx = buffer(1)*buffer_cnlm(mm_2,ll,nn)*dconjg(buffer_cnlm(mm_3,ll,nn))
+                      X(cntr) = real(res_cmplx)
+                      if (abs(X(cntr)).lt.1.0d-15) then
+                          X(cntr) = 0.0d0
+                      end if
+                      cntr = cntr + 1
+
+
+                  end do
+              end do
             end if
 
 !                nn_loop : do nn=1,bispect_param%nmax
 !                    ll_1_loop : do ll_1=0,lmax
 !                        ll_2_loop : do ll_2=0,lmax
 !                            ll_3_loop : do ll_3=ll_2,lmax
-!                                
+!
 !                                res_cmplx = complex(0.0d0,0.0d0)
 !                                mm_1_loop : do mm_1=-ll_1,ll_1
 !                                    buffer(1) = dconjg(buffer_cnlm(mm_1,ll_1,nn))
-!    
+!
 !                                    call get_m2_limits(ll_2,ll_3,mm_1,mm_2_limits)
 !
 !                                    mm_2_loop : do mm_2=mm_2_limits(1),mm_2_limits(2)
 !                                        buffer(2) = buffer(1)*buffer_cnlm(mm_2,ll_2,nn)
 !                                        mm_3 = mm_1 - mm_2
-!                                        
+!
 !                                        cg_coeff = buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1)
 !                                        res_cmplx = res_cmplx + buffer(2)*buffer_cnlm(mm_3,ll_3,nn) * cg_coeff
 !                                    end do mm_2_loop
@@ -395,9 +447,9 @@ module features
 !                                X(cntr) = real(res_cmplx)
 !                                cntr = cntr + 1
 !if((ll_1.eq.ll_3).and.(ll_2.eq.0)) then
-!write(*,*) X(cntr-1)                   
+!write(*,*) X(cntr-1)
 !end if
-!                            
+!
 !                            end do ll_3_loop
 !                        end do ll_2_loop
 !                    end do ll_1_loop
@@ -420,9 +472,11 @@ module features
 
                 !* bispectrum needs Clebsch-Gordan coefficients
                 call init_buffer_cg_coeff()
-       
+
                 !* only |l1+l2| <= l <= l1+l2 and l+l1+2=even are nonzero
                 call init_buffer_lvalues()
+            else if (bispect_param%calc_type.eq.2) then
+                call init_buffer_calc_2_mvalues()
             end if
         end subroutine init_buffer_all_general
 
@@ -443,7 +497,7 @@ module features
             do mm=0,bispect_param%lmax
                 buffer_sph_plgndr_2(mm) = sqrt(dble(2*mm+3))
             end do
-            
+
             do mm=0,bispect_param%lmax
                 do ll=0,bispect_param%lmax
                     buffer_sph_plgndr_3(ll,mm) =  sqrt( dble(4*(ll**2)-1)/dble((ll**2)-(mm**2)) )
@@ -463,7 +517,7 @@ module features
             integer :: dim(1:2),ii,mm,ll
             real(8),allocatable :: cos_theta(:)
             real(8) :: cos_m,sin_m
-            
+
             !* get number of x, dim(2)
             dim = shape(polars)
 
@@ -549,7 +603,7 @@ module features
                                     !cgval = cg_calculate(ll_2,mm_2,ll_3,mm_3,ll_1,mm_1) !THIS IS WRONG
 
                                     !* store
-                                    buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1) = cgval 
+                                    buffer_cg_coeff(mm_3,mm_2,mm_1,ll_3,ll_2,ll_1) = cgval
                                 end do
                             end do
                         end do
@@ -568,9 +622,9 @@ module features
             if(allocated(buffer_spherical_harm_const)) then
                 deallocate(buffer_spherical_harm_const)
             end if
-            
+
             allocate(buffer_spherical_harm_const(0:bispect_param%lmax,0:bispect_param%lmax))
-            buffer_spherical_harm_const = 0.0d0            
+            buffer_spherical_harm_const = 0.0d0
 
             do ll=0,bispect_param%lmax,1
                 do mm=0,ll
@@ -673,7 +727,7 @@ module features
             end if
             if(bispect_param%lmax.ge.1) then
                 allocate(buffer_polar_sc(1:2,1:Nneigh,1:bispect_param%lmax))
-               
+
                 do mm=1,bispect_param%lmax
                     dble_mm = dble(mm)
                     do ii=1,Nneigh,1
@@ -690,17 +744,17 @@ module features
             ! to a particular density grid point
             implicit none
 
-            real(8),intent(in) :: polar(:,:)            
+            real(8),intent(in) :: polar(:,:)
 
             !* associated legendre polynomials of polar angle - NO LONGER NECESSARY
             !call init_buffer_spherical_p(polar)
 
             !* trigonometric bases for azimuthal angle
             call init_buffer_polar_sc(polar)
-            
+
             !* Y_iml
             call init_spherical_harm(polar)
-        
+
             !* radial component in radial bases
             call init_radial_g(polar)
 
@@ -710,7 +764,7 @@ module features
 
         real(8) function spherical_harm_const__sub1(mm,ll)
             implicit none
-    
+
             !* args
             integer,intent(in) :: ll,mm
 
@@ -719,7 +773,7 @@ module features
 
             dble_ll = dble(ll)
             dble_mm = dble(mm)
-        
+
             spherical_harm_const__sub1 = ((2.0d0*dble_ll+1.0d0)*dble(factorial(ll-mm)))/(12.5663706144d0*dble(factorial(ll+mm)))
         end function spherical_harm_const__sub1
 
@@ -728,7 +782,7 @@ module features
 
             !* args
             integer,intent(in) :: x
-    
+
             if (x.eq.0) then
                 res = 1
             else if (x.gt.0) then
@@ -752,7 +806,7 @@ module features
 
             !* args
             real(8),intent(in) :: polar(:,:)
-    
+
             !* scratch
             integer :: dim(1:2),Nneigh,ii,nn
             real(8),allocatable :: phi(:,:)
@@ -770,7 +824,7 @@ module features
                 do ii=1,Nneigh,1
                     phi(ii,nn) = radial_phi_type1(nn,polar(1,ii))
                 end do
-            end do        
+            end do
 
             !* g_i,beta = sum_alpha W_beta,alpha phi_i,alpha
             call dgemm('n','n',Nneigh,bispect_param%nmax,bispect_param%nmax,1.0d0,phi,Nneigh,&
@@ -811,7 +865,7 @@ module features
             implicit none
 
             real(8),intent(in) :: arr1(:),arr2(:)
-            
+
             integer :: dim1(1:1),dim2(1:1)
             real(8) :: res2
 
@@ -822,7 +876,7 @@ module features
                 call error_message("ddot_wrapper","shapes not consistent")
             end if
 
-            ! CANNOT SLICE arrays for ddot with blas, need to pass slice 
+            ! CANNOT SLICE arrays for ddot with blas, need to pass slice
             ! through arg list
             res2 = ddot(dim1(1),arr1,1,arr2,1)
             ddot_wrapper = res2
@@ -840,7 +894,7 @@ module features
             lmax = bispect_param%lmax
             dim = shape(buffer_spherical_harm)
             natm = dim(1)
-            
+
             buffer_cnlm = 0.0d0
             do nn=1,bispect_param%nmax
                 do ll=0,lmax
@@ -849,10 +903,10 @@ module features
                         do ii=1,natm
                             ! IF SPLIT REAL AND IMAG PARTS INTO SEPARATE ARRAYS, COULD USE DDOT WRAPPER HERE
                             tmp = buffer_spherical_harm(ii,mm,ll)*buffer_radial_g(ii,nn)
-                            
+
                             res = res + tmp
                         end do
-                    
+
                         buffer_cnlm(mm,ll,nn) = res
 
                         !* Y_-m,l = Y_ml^* * (-1)^m  CONJUGATE(sum x) = sum CONJUGATE(x)
@@ -878,7 +932,7 @@ write(*,*) natm
                         end do
                     end do
                 end do
-            end if                
+            end if
         end subroutine calc_cnlm
 
         subroutine init_buffer_factorial()
@@ -892,7 +946,7 @@ write(*,*) natm
                 deallocate(buffer_factorial)
             end if
             allocate(buffer_factorial(0:3*lmax+1))
-        
+
             buffer_factorial(0) = 1.0d0
             do ll=1,3*lmax+1
                 buffer_factorial(ll) = dble(ll)*buffer_factorial(ll-1)
@@ -900,12 +954,12 @@ write(*,*) natm
         end subroutine init_buffer_factorial
 
         subroutine init_buffer_lvalues()
-            ! Clebsch Gordan coefficients are non zero when 2 conditions are 
+            ! Clebsch Gordan coefficients are non zero when 2 conditions are
             ! met :
             ! A. |l1+l2| <= l <= l1+l2
             ! B. m1+m2 = m
-            ! 
-            ! NOTE: also, since bispectrum coefficients are invariant to 
+            !
+            ! NOTE: also, since bispectrum coefficients are invariant totmp_main
             ! permutting l1,l2, only take unique l1,l2 pairs
             implicit none
 
@@ -918,7 +972,7 @@ write(*,*) natm
             if (allocated(buffer_lvalues)) then
                 deallocate(buffer_lvalues)
             end if
-            
+
             allocate(tmp(1:3,1:(lmax+1)**3))
 
             cntr = 0
@@ -940,4 +994,270 @@ write(*,*) natm
 
             deallocate(tmp)
         end subroutine init_buffer_lvalues
+
+        subroutine init_buffer_calc_2_mvalues()
+        !create the m_1 m_2 pairs that give unique values for the axial bispectrum
+        !conditions:
+        !unique (m_1,m_2) combinations, fulfilled by m_1 less than or equal to m_2
+        !unique (abs(m_1),abs(m_2),abs(m_1+m_2)) combinations
+        !all of m_1, m_2 and m_1+m_2 are less than or equal to l
+        implicit none
+        integer,allocatable :: tmp_main(:,:), tmp_completed(:,:), ml_list(:,:), sorted_ml_list(:,:), tmp_ml(:), tmp_ml_sorted(:)
+        integer :: lmax, ll, mm_1, mm_2, mm_3, ii, jj, cntr, new_cntr, tmp_cntr
+
+        lmax = bispect_param%lmax
+
+        allocate(ml_list(1:4,1:4*(lmax+1)**3))
+        allocate(sorted_ml_list(1:4,1:4*(lmax+1)**3))
+        allocate(tmp_ml(1:4))
+        allocate(tmp_ml_sorted(1:3))
+
+        if (allocated(buffer_c2_mvalues)) then
+            deallocate(buffer_c2_mvalues)
+        end if
+
+        cntr = 0
+
+
+        do ll=0,lmax!ll loop
+            !l can be any value from 0 to lmax
+            !m_1 can be any value from -l to l/2
+            !m_2 is restricted by the condition m_1+m_2 <= l
+            !m_2 varies from m_1 to l-m_1
+
+            !res_cmplx = complex(0.0d0,0.0d0)
+
+            do mm_1=-ll,floor(0.5*ll) !mm1 loop
+                ! reduce page thrashing
+
+
+                if (mm_1.ge.0) then
+                    do mm_2=mm_1,(ll-mm_1)!mm2 loop
+                      mm_3 = mm_1 + mm_2
+                      tmp_ml = (/ll,mm_1,mm_2,mm_3/)
+                      cntr = cntr + 1
+                      ml_list(:,cntr) = tmp_ml
+                      tmp_ml_sorted = abs(tmp_ml(2:4))
+
+                      call sort_array(tmp_ml_sorted)
+                      sorted_ml_list(2:4,cntr) = tmp_ml_sorted
+                      sorted_ml_list(1,cntr) = ll
+
+
+                    end do
+                else if (mm_1.ge.-1*python_int(0.5d0*ll)) then
+                  do mm_2=mm_1,ll !mm2 loop
+                    mm_3 = mm_1 + mm_2
+
+                    tmp_ml = (/ll,mm_1,mm_2,mm_3/)
+                    cntr = cntr + 1
+                    ml_list(:,cntr) = tmp_ml
+                    tmp_ml_sorted = abs(tmp_ml(2:4))
+                    call sort_array(tmp_ml_sorted)
+                    sorted_ml_list(2:4,cntr) = tmp_ml_sorted
+                    sorted_ml_list(1,cntr) = ll
+
+                  end do
+                else
+                  do mm_2=-1*mm_1-ll,ll!mm2 loop
+                    mm_3 = mm_1 + mm_2
+
+                    tmp_ml = (/ll,mm_1,mm_2,mm_3/)
+                    cntr = cntr + 1
+                    ml_list(:,cntr) = tmp_ml
+                    tmp_ml_sorted = abs(tmp_ml(2:4))
+                    call sort_array(tmp_ml_sorted)
+                    sorted_ml_list(2:4,cntr) = tmp_ml_sorted
+                    sorted_ml_list(1,cntr) = ll
+                  end do
+                end if
+            end do
+        end do
+
+        deallocate(tmp_ml_sorted)
+        allocate(tmp_ml_sorted(1:4))
+
+        allocate(tmp_main(1:4,cntr))
+        allocate(tmp_completed(1:4,cntr))
+        ! tmp_main = 0
+        ! tmp_completed = 0
+        new_cntr = 1
+
+
+        tmp_main(:,1) = ml_list(:,1)
+        tmp_completed(:,1) = sorted_ml_list(:,1)
+
+        do ii = 1, cntr
+            tmp_ml = ml_list(:,ii)
+            tmp_ml_sorted = sorted_ml_list(:,ii)
+            tmp_cntr = 0
+            do jj = 1,new_cntr
+                if (all(tmp_ml_sorted.eq.tmp_completed(:,jj))) then
+                    tmp_cntr = tmp_cntr + 1
+                end if
+            end do
+            if (tmp_cntr.eq.0) then
+                new_cntr = new_cntr + 1
+                tmp_main(:,new_cntr) = tmp_ml
+                tmp_completed(:,new_cntr) = tmp_ml_sorted
+            end if
+
+        end do
+
+
+
+        allocate(buffer_c2_mvalues(1:4,1:new_cntr))
+
+        buffer_c2_mvalues = tmp_main(:,1:new_cntr)
+
+
+        deallocate(tmp_main)
+        deallocate(tmp_completed)
+        deallocate(ml_list)
+        deallocate(tmp_ml)
+        deallocate(tmp_ml_sorted)
+        deallocate(sorted_ml_list)
+
+        end subroutine init_buffer_calc_2_mvalues
+
+        integer function calc_2_cardinality(nmax,lmax)
+        !create the m_1 m_2 pairs that give unique values for the axial bispectrum
+        !conditions:
+        !unique (m_1,m_2) combinations, fulfilled by m_1 less than or equal to m_2
+        !unique (abs(m_1),abs(m_2),abs(m_1+m_2)) combinations
+        !all of m_1, m_2 and m_1+m_2 are less than or equal to l
+        implicit none
+        integer, intent(in) :: nmax
+        integer, intent(in) :: lmax
+        integer,allocatable :: tmp_completed(:,:), ml_list(:,:), sorted_ml_list(:,:), tmp_ml(:), tmp_ml_sorted(:)
+        integer :: ll, mm_1, mm_2, mm_3, ii, jj, cntr, new_cntr, tmp_cntr
+
+        allocate(ml_list(1:4,1:(2*lmax+1)**3))
+        allocate(sorted_ml_list(1:4,1:(2*lmax+1)**3))
+        allocate(tmp_ml(1:4))
+        allocate(tmp_ml_sorted(1:3))
+
+        cntr = 0
+
+        do ll=0,lmax!ll loop
+            !l can be any value from 0 to lmax
+            !m_1 can be any value from -l to l/2
+            !m_2 is restricted by the condition m_1+m_2 <= l
+            !m_2 varies from m_1 to l-m_1
+
+            !res_cmplx = complex(0.0d0,0.0d0)
+
+            do mm_1=-ll,floor(0.5*ll) !mm1 loop
+                ! reduce page thrashing
+
+
+                if (mm_1.ge.0) then
+                    do mm_2=mm_1,(ll-mm_1)!mm2 loop
+                      mm_3 = mm_1 + mm_2
+                      tmp_ml = (/ll,mm_1,mm_2,mm_3/)
+                      cntr = cntr + 1
+                      ml_list(:,cntr) = tmp_ml
+                      tmp_ml_sorted = abs(tmp_ml(2:4))
+
+                      call sort_array(tmp_ml_sorted)
+                      sorted_ml_list(2:4,cntr) = tmp_ml_sorted
+                      sorted_ml_list(1,cntr) = ll
+
+
+                    end do
+                else if (mm_1.ge.-1*python_int(0.5d0*ll)) then
+                  do mm_2=mm_1,ll !mm2 loop
+                    mm_3 = mm_1 + mm_2
+
+                    tmp_ml = (/ll,mm_1,mm_2,mm_3/)
+                    cntr = cntr + 1
+                    ml_list(:,cntr) = tmp_ml
+                    tmp_ml_sorted = abs(tmp_ml(2:4))
+                    call sort_array(tmp_ml_sorted)
+                    sorted_ml_list(2:4,cntr) = tmp_ml_sorted
+                    sorted_ml_list(1,cntr) = ll
+
+                  end do
+                else
+                  do mm_2=-1*mm_1-ll,ll!mm2 loop
+                    mm_3 = mm_1 + mm_2
+
+                    tmp_ml = (/ll,mm_1,mm_2,mm_3/)
+                    cntr = cntr + 1
+                    ml_list(:,cntr) = tmp_ml
+                    tmp_ml_sorted = abs(tmp_ml(2:4))
+                    call sort_array(tmp_ml_sorted)
+                    sorted_ml_list(2:4,cntr) = tmp_ml_sorted
+                    sorted_ml_list(1,cntr) = ll
+                  end do
+                end if
+            end do
+        end do
+
+        deallocate(tmp_ml_sorted)
+        allocate(tmp_ml_sorted(1:4))
+
+        allocate(tmp_completed(1:4,cntr))
+        ! tmp_main = 0
+        ! tmp_completed = 0
+        new_cntr = 1
+
+
+        tmp_completed(:,1) = sorted_ml_list(:,1)
+
+        do ii = 1, cntr
+            tmp_ml_sorted = sorted_ml_list(:,ii)
+            tmp_cntr = 0
+            do jj = 1,new_cntr
+                if (all(tmp_ml_sorted.eq.tmp_completed(:,jj))) then
+                    tmp_cntr = tmp_cntr + 1
+                end if
+            end do
+            if (tmp_cntr.eq.0) then
+                new_cntr = new_cntr + 1
+                tmp_completed(:,new_cntr) = tmp_ml_sorted
+            end if
+
+        end do
+
+
+        deallocate(tmp_completed)
+        deallocate(ml_list)
+        deallocate(tmp_ml)
+        deallocate(tmp_ml_sorted)
+        deallocate(sorted_ml_list)
+
+        calc_2_cardinality = new_cntr*nmax
+
+        end function calc_2_cardinality
+
+        subroutine check_calc_2_buffer()
+            implicit none
+
+            integer :: m_1,m_2,m_3,l,ii, cntr
+            integer :: dim(2)
+
+            if (.not.allocated(buffer_c2_mvalues)) then
+                call error_message("check_calc_2_buffer","buffer not allocated")
+            end if
+
+            dim = shape(buffer_c2_mvalues)
+            cntr = 0
+            do ii = 1, dim(2)
+                l = buffer_c2_mvalues(1,ii)
+                m_1 = buffer_c2_mvalues(2,ii)
+                m_2 = buffer_c2_mvalues(3,ii)
+                m_3 = buffer_c2_mvalues(4,ii)
+                if (m_1.gt.l.or.m_2.gt.l.or.m_3.gt.l.or.m_1+m_2.ne.m_3) then
+                    cntr = cntr + 1
+                end if
+            end do
+
+            if (cntr.gt.0) then
+                call error_message("check_calc_2_buffer","buffer m_1, m_2, m_3 and l values are inconsistent")
+            end if
+        end subroutine check_calc_2_buffer
+
+
+
 end module features

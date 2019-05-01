@@ -1,16 +1,25 @@
 """
 module for bispectrum features around atoms
 """
-from features.powerspectrum_f90api import f90wrap_calculate_local as f90_calculate_local
-from features.powerspectrum_f90api import f90wrap_calculate_global as f90_calculate_global
-from features.powerspectrum_f90api import f90wrap_check_cardinality as f90_num_features
+from spinRegression.powerspectrum_f90api import f90wrap_calculate_local as f90_calculate_local
+from spinRegression.powerspectrum_f90api import f90wrap_calculate_global as f90_calculate_global
+from spinRegression.powerspectrum_f90api import f90wrap_check_cardinality as f90_num_features
 import numpy as np
+
+def fp_length(nmax,lmax,form):
+    # just a wrapper for f90_num_features
+    if form not in ["powerspectrum","bispectrum","axial-bispectrum"]:
+        raise FeaturesError("bispectrum type {} not supported".format(form))
+
+    c_type = {"powerspectrum":0,"bispectrum":1,"axial-bispectrum":2}[form]
+    num_features = f90_num_features(lmax=lmax,nmax=nmax,calc_type=c_type)
+    return num_features
 
 def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form="powerspectrum",global_form="powerspectrum"):
     """
-    For each density grid point in xyz, calculate local power/bi-spectrum 
+    For each density grid point in xyz, calculate local power/bi-spectrum
     features. Compute the global crystal representation using power/bi-spectrum
-    features once and concacentate this to all grid points 
+    features once and concacentate this to all grid points
     """
 
     localX = local_features(cell=cell,atom_pos_uvw=atom_pos_uvw,xyz=xyz,nmax=nmax,lmax=lmax,\
@@ -22,7 +31,7 @@ def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form=
     else:
         X = localX
 
-    return X 
+    return X
 
 def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="powerspectrum",buffersize=1000):
     """
@@ -34,14 +43,14 @@ def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="
     Arguments
     ---------
     cell, shape=(3,3)
-        - cartesian coordinates of cell vectors : cell_ix is xth cartesian 
+        - cartesian coordinates of cell vectors : cell_ix is xth cartesian
           component of ith cell vector
-    
+
     atom_pos_uvw, shape=(N,3)
         - fractional coordinates of N atoms in local cell
 
     xyz, shape=(Ngrid,3)
-        - cartesian coordinates of Ngrid points 
+        - cartesian coordinates of Ngrid points
 
     nmax, int
         - radial term n=[1,nmax]
@@ -58,14 +67,14 @@ def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="
 
     Note
     ----
-    Full periodic boundaries are implemented, periodic images of crystal 
+    Full periodic boundaries are implemented, periodic images of crystal
     extend to inifinity (interactions are finite due to tapering with radius)
     """
 
-    if form not in ["powerspectrum","bispectrum"]:
+    if form not in ["powerspectrum","bispectrum","axial-bispectrum"]:
         raise FeaturesError("bispectrum type {} not supported".format(form))
 
-    c_type = {"powerspectrum":0,"bispectrum":1}[form]
+    c_type = {"powerspectrum":0,"bispectrum":1,"axial-bispectrum":2}[form]
     num_features = f90_num_features(lmax=lmax,nmax=nmax,calc_type=c_type)
 
     X = np.zeros((num_features,xyz.shape[0]),dtype=np.float64,order='F')
@@ -93,7 +102,7 @@ def global_features(cell,atom_pos_uvw,nmax,lmax,rcut=6.0,form="powerspectrum",bu
     f90_calculate_global(cell=format_py_to_f90(cell),atom_positions=format_py_to_f90(atom_pos_uvw),\
             rcut=rcut,lmax=lmax,nmax=nmax,calc_type=c_type,buffer_size=int(buffersize),x=X)
 
-    return np.asarray(X,order='F')            
+    return np.asarray(X,order='F')
 
 def format_py_to_f90(array):
     """

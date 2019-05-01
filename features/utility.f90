@@ -2,7 +2,7 @@ module utility
     use io
 
     implicit none
-    
+
     external :: dsyev
     external :: dgemv
     external :: dgetrf
@@ -18,7 +18,7 @@ module utility
             ! Condition 2: l <= l1+l2
             ! Condition 3: l+l1+l2 = even
             !
-            ! [1] Monthly Notices of the Royal Society, Volume 318, Issue 2, 
+            ! [1] Monthly Notices of the Royal Society, Volume 318, Issue 2,
             !     pg 584-598, (2000)
             implicit none
 
@@ -42,7 +42,7 @@ module utility
             ! min value
             array(1) = -ll_2
             array(2) = mm_1 - ll_3      ! m2_min = m1 - l2
-            limits(1) = maxval(array)   
+            limits(1) = maxval(array)
 
             ! max value
             array(1) = ll_2
@@ -55,7 +55,7 @@ module utility
             ! B = V D V^{-1} where D is diagonal matrix of eigenvalues, then
             ! B^{1/2} = V D^{1/2} V^{-1}
             !
-            ! Likewise, B^{-1} = V D^{-1} V ^{-1}  since 
+            ! Likewise, B^{-1} = V D^{-1} V ^{-1}  since
             ! (ABC)^{-1} = C^{-1}B^{-1}A^{-1} and since D^{-1} is still diagonal
             ! , B^{-1/2} = V D^{-1/2} V^{-1} where D^{-1/2}_ii = 1/sqrt(D_ii)
             !
@@ -64,13 +64,13 @@ module utility
             ! Note V is constructed of eigenvectors of B, D is constructed of
             ! eigenvalues of B
             implicit none
-    
+
             !* args
             real(8),intent(in) :: symmetric_matrix(:,:)
             real(8),intent(inout) :: invsqrt(:,:)
 
             !* scratch
-            real(8),allocatable,dimension(:,:) :: V,D,invV   
+            real(8),allocatable,dimension(:,:) :: V,D,invV
             real(8),allocatable,dimension(:,:) :: tmp1,tmp2
             integer :: ii,dim(1:2)
 
@@ -95,23 +95,23 @@ module utility
 
             !* tmp1 = D^{-1/2} V^{-1} = D^{-1/2} V^T
             call dgemm('n','n',dim(1),dim(2),dim(2),1.0d0,D,dim(1),invV,dim(2),0.0d0,tmp1,dim(1))
-           
+
             !* invsqrt = V D^{-1/2} V^{-1}
             call dgemm('n','n',dim(1),dim(2),dim(2),1.0d0,V,dim(1),tmp1,dim(2),0.0d0,invsqrt,dim(1))
         end subroutine sqrt_of_matrix_inverse
 
         subroutine eigen_vectors_values(symmetric_matrix,eigenvalues,eigenvectors)
             ! when A is symmetric, A = Q T Q^{H} where T is called real
-            ! tridiagonal form of A. 
+            ! tridiagonal form of A.
 
             implicit none
-            
+
             !external :: dsyev_
 
             !* args
             real(8),intent(in) :: symmetric_matrix(:,:)
-            real(8),allocatable,intent(inout) :: eigenvalues(:),eigenvectors(:,:)       
- 
+            real(8),allocatable,intent(inout) :: eigenvalues(:),eigenvectors(:,:)
+
             !* scratch
             integer :: dim(1:2)
             integer :: ii,jj
@@ -128,21 +128,21 @@ module utility
             !* check matrix is transpose
             do ii=1,dim(1),1
                 do jj=1,dim(2),1
-                    !* get absolute tol 
+                    !* get absolute tol
                     if (abs(symmetric_matrix(ii,jj)).lt.dble(1e-15)**2) then
                         atol = dble(1e-12)**2
                     else
                         atol = abs(symmetric_matrix(ii,jj))*dble(1e-9)
-                    end if                    
+                    end if
 
                     if (abs(symmetric_matrix(ii,jj)-symmetric_matrix(jj,ii)).gt.atol) then
                         write(*,*) "Error in eigen_vectors_values : matrix not symmetric : ",&
                         &symmetric_matrix(ii,jj),"!=",symmetric_matrix(jj,ii)
-                        call exit(0) 
+                        call exit(0)
                     end if
                 end do
             end do
-            
+
             allocate(eigenvalues(dim(1)))
             allocate(eigenvectors(dim(1),dim(2)))
 
@@ -151,7 +151,7 @@ module utility
 
             !* length of work array
             dim_work = 3*dim(1) - 1
-    
+
             !* work array
             allocate(work_array(dim_work))
 
@@ -166,25 +166,25 @@ module utility
                 call exit(0)
             end if
         end subroutine eigen_vectors_values
-    
+
         logical function check_eigen_vectors_values(matrix,eig_values,eig_vectors,verbose)
             implicit none
 
             !* args
             real(8),intent(in) :: matrix(:,:),eig_values(:),eig_vectors(:,:)
-            logical,optional,intent(in) :: verbose 
+            logical,optional,intent(in) :: verbose
 
             !* scratch
             integer :: dim(1:2),ii,jj
             real(8),allocatable :: tmp(:),tmp2(:)
             real(8) :: atol
             logical :: res=.true.
-            
+
 
             dim = shape(matrix)
             allocate(tmp(dim(2)))
             allocate(tmp2(dim(2)))
-            
+
             do ii=1,dim(1)
                 !* LHS
                 call dgemv('n',dim(1),dim(2),1.0d0,matrix,dim(1),eig_vectors(:,ii),1,0.0d0,tmp,1)
@@ -238,7 +238,7 @@ module utility
             D = 0.0d0
             do ii=1,dim(1)
                 D(ii,ii) = eig_vals(ii)
-            end do 
+            end do
 
             !* V^{-1} = V^T when A is symmetric
             do ii=1,dim(1)
@@ -249,7 +249,7 @@ module utility
         end subroutine symmetric_eigen_decomposition
 
         logical function check_symmetric_eigen_decomposition(symmetric_matrix,V,D,invV,verbose)
-            ! check that A = V D V^{-1}                
+            ! check that A = V D V^{-1}
             ! When A is symmetric, V^{-1}=V^T
 
             implicit none
@@ -280,7 +280,7 @@ module utility
                 do jj=1,dim(2)
                     if (abs(symmetric_matrix(ii,jj)).lt.dble(1e-15)**2) then
                         atol = dble(1e-12)**2
-                    else  
+                    else
                         atol = abs(symmetric_matrix(ii,jj))*dble(1e-9)
                     end if
 
@@ -309,29 +309,29 @@ module utility
             !* scratch
             integer :: dim(1:2),info,ii,jj
             real(8),allocatable,dimension(:,:) :: matrix_inv_lhs,matrix_inv_rhs
-            integer,allocatable :: ipiv(:)            
+            integer,allocatable :: ipiv(:)
             real(8),allocatable :: work(:)
             real(8) :: atol
             logical :: res=.true.
 
-            dim = shape(symmetric_matrix) 
+            dim = shape(symmetric_matrix)
             allocate(matrix_inv_lhs(dim(1),dim(2)))
             allocate(matrix_inv_rhs(dim(1),dim(2)))
-            allocate(ipiv(dim(1)))  
+            allocate(ipiv(dim(1)))
             allocate(work(dim(1)))
 
             matrix_inv_lhs(:,:) = symmetric_matrix(:,:)
-            
+
             !* do easy part first, rhs = invsrqt . invsqrt
             call dgemm('n','n',dim(1),dim(2),dim(2),1.0d0,invsqrt,dim(1),invsqrt,dim(2),0.0d0,matrix_inv_rhs,dim(1))
-            
+
             !* invert
             call dgetrf(dim(1),dim(1),matrix_inv_lhs,dim(1),ipiv,info)
             call dgetri(dim(1),matrix_inv_lhs,dim(1),ipiv,work,dim(1),info)
             if (info.ne.0) then
                 write(*,*) "Error : matrix inversion in check_sqrt_inv_matrix failed"
                 call exit(0)
-            end if 
+            end if
 
             do ii=1,dim(1)
                 do jj=1,dim(1)
@@ -374,7 +374,7 @@ module utility
                 call error_message("load_balance_alg_1","Check args to routine")
             end if
 
-            all_bounds(1,1) = 1 
+            all_bounds(1,1) = 1
             all_bounds(2,1) = all_bounds(1,1) + dx - 1
             if (1.le.difference) then
                 all_bounds(2,1) = all_bounds(2,1) + 1
@@ -385,7 +385,7 @@ module utility
                 all_bounds(2,thread) = all_bounds(1,thread) + dx - 1
                 if (thread.le.difference) then
                     all_bounds(2,thread) = all_bounds(2,thread) + 1
-                end if 
+                end if
             end do
             bounds(1:2) = all_bounds(1:2,thread_idx+1)
         end subroutine load_balance_alg_1
@@ -417,9 +417,42 @@ module utility
 
                         charge_col(nz) = cmplx(density(idx),0.0d0,kind=dp)
                     end do
-                    write(1,iostat=iostat) nx,ny,charge_col 
+                    write(1,iostat=iostat) nx,ny,charge_col
                 end do
             end do
             close(1)
         end subroutine write_density_to_disk
+
+        subroutine sort_array(array)
+            !sorts the array, ordered from lowest to highest
+            implicit none
+            integer, intent(inout) :: array(:)
+            integer :: arr_len, ii, jj
+            integer :: buffer
+
+            arr_len = size(array)
+
+            do ii = 1,arr_len
+                jj = minloc(array(ii:arr_len),1)
+                jj = jj + ii - 1
+                buffer = array(ii)
+                array(ii) = array(jj)
+                array(jj) = buffer
+            end do
+
+
+        end subroutine sort_array
+
+        integer function python_int(x)
+            ! python int(x) = floor(x) for x>0 , python int(x) = ceil(x), x<0
+            implicit none
+
+            real(8),intent(in) :: x
+
+            if (x.ge.0.0d0) then
+                python_int = int(floor(x))
+            else
+                python_int = int(ceiling(x))
+            end if
+        end function python_int
 end module utility
