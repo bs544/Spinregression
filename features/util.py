@@ -74,7 +74,7 @@ class format_data():
                 # need (N,1) rather than (N,)
                 self.ys = np.reshape(self.ys,(-1,1))
                 self.target_mean = np.mean(self.ys,0)
-                self.target_std = np.std(self.ys,0)#.reshape(-1,1)
+                self.target_std = np.std(self.ys,0).reshape(-1,1)
 
             elif (self.ys.shape[1] == 1):
                 self.y_dim = 1
@@ -93,6 +93,7 @@ class format_data():
                     self.val_idx = np.random.choice(np.arange(N_data),size=N_data,replace=False)
                 self.ys_val = self.ys[self.val_idx[:N_val],:]
                 self.ys = self.ys[self.val_idx[N_val:],:]
+
 
     def set_batch_size(self,batch_size):
         """
