@@ -79,7 +79,7 @@ class format_data():
             elif (self.ys.shape[1] == 1):
                 self.y_dim = 1
                 self.target_mean = np.mean(self.ys,0)
-                self.target_std = np.std(self.ys,0)
+                self.target_std = np.std(self.ys,0).reshape(-1,1)
 
             else:
                 self.y_dim = self.ys.shape[1]
