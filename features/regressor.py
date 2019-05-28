@@ -1,22 +1,27 @@
 """
 Interface to regression and prediction
 """
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['KMP_AFFINITY'] = 'noverbose'
+
+
 from features.util import format_data,toy_argparse
 import pickle
-import os
+
 from features.heuristic_model import MLPGaussianRegressor,MLPDropoutGaussianRegressor,MLPDensityMixtureRegressor,NoLearnedCovariance
 from features.bayes import vi_bayes
 #from edward import KLqp
 from sklearn.metrics import mean_squared_error as mse
+import copy
 import warnings
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore",category=DeprecationWarning)
     import numpy as np
     import tensorflow as tf
+    tf.logging.set_verbosity(tf.logging.ERROR)
 
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ['KMP_AFFINITY'] = 'noverbose'
 
 class regressor():
     def __init__(self,method="nonbayes",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
@@ -169,6 +174,34 @@ class regressor():
         else: raise NotImplementedError
 
         return mean,np.sqrt(var)
+    
+    def predict_individual_values(self,X):
+        """
+        Make predictions for individual networks in the ensemble, only returns means for RMSE calculations
+        Only implemented for the standard-ensemble and nonbayes ensembles
+        """
+
+        #X has shape [num_values,fingerprint_length]
+
+        xs = self.train_data.get_xs_standardized(X)
+
+        num_values = xs.shape[0]
+
+        means = np.zeros((self.Nensemble,num_values,self.train_data.y_dim))
+
+        for ii,model in enumerate(self.session["ensemble"]):
+            feed = {model.input_data: xs}
+
+            if self.method == 'nonbayes':
+                mean,var = self.session["tf_session"].run([model.mean,model.var],feed)
+                means[ii,:,:] = mean
+
+
+            elif self.method == "standard_ensemble":
+                mean = self.session["tf_session"].run([model.mean],feed)
+                means[ii,:,:] = mean[0]
+        
+        return means
 
     def save(self,prefix="model"):
         """
@@ -177,7 +210,7 @@ class regressor():
         if not os.path.isdir(prefix):
             os.mkdir('./{}'.format(prefix))
 
-        if self.method in ["nonbayes","nonbayes_dropout","nonbayes-mdn"]:
+        if self.method in ["nonbayes","nonbayes_dropout","nonbayes-mdn","standard_ensemble"]:
             self._save_nonbayes(prefix)
         elif self.method == "bayes":
             self._save_bayes(prefix)
@@ -194,13 +227,13 @@ class regressor():
             # load all non tf attributes
             setattr(self,_attr,attributes[_attr])
 
-        if self.method in ["nonbayes","nonbayes_dropout","nonbayes-mdn"]:
+        if self.method in ["nonbayes","nonbayes_dropout","nonbayes-mdn","standard_ensemble"]:
             self._load_nonbayes(prefix)
         elif self.method == "bayes":
             self._load_bayes(prefix)
 
     def _init_MLPGaussianRegressor(self):
-        combine_args = self.method_args
+        combine_args = copy.deepcopy(self.method_args)
         for _attr in ["activation","dtype"]:
             combine_args.update({_attr:getattr(self,_attr)})
 
@@ -366,16 +399,8 @@ class regressor():
             cntr = 0
 
             for ii,model in enumerate(self.session["ensemble"]):
-                if self.method == "nonbayes_dropout":
-                    num_samples = Nsample
-                else:
-                    num_samples = 1
-
-                for _draw_sample in range(num_samples):
 
                     feed = {model.input_data: xs}
-                    if self.method == "nonbayes_dropout":
-                        feed.update({model.dr : self.method_args["keep_prob"]})
                     mean = self.session["tf_session"].run([model.mean],feed)
                     means[ii,:,:] = mean[0]
                     cntr += 1
@@ -453,7 +478,8 @@ class regressor():
         self.session["saver"].save(self.session["tf_session"],"./{}/{}".format(prefix,prefix))
 
         # save tf variables to numpy arrays for use with sklearn
-        #self._save_tf_to_np(prefix)
+        if (self.method_args["opt_method"]=="rmsprop"):
+            self._save_tf_to_np(prefix)
 
     def _save_tf_to_np(self,prefix):
         # size of ensemble
@@ -510,6 +536,11 @@ class regressor():
 
     def _load_bayes(self,prefix):
         raise NotImplementedError
+    
+    def Close_session(self):
+        if not self.session["tf_session"]._closed:
+            self.session["tf_session"].close
+
 
 
 

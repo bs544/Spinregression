@@ -9,6 +9,10 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
 
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+tf.logging.set_verbosity(tf.logging.ERROR)
+
 class MLPDensityMixtureRegressor():
 
     def __init__(self, args, sizes, model_scope):
@@ -416,7 +420,7 @@ class MLPDropoutGaussianRegressor():
         if args.activation=="logistic":
             activation_func = tf.nn.sigmoid
         elif args.activation=="relu":
-            activation_func = tf.nn.reul
+            activation_func = tf.nn.relu
         elif args.activation=="tanh":
             activation_func = tf.nn.tanh
 
