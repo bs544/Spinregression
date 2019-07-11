@@ -15,7 +15,7 @@ def fp_length(nmax,lmax,form):
     num_features = f90_num_features(lmax=lmax,nmax=nmax,calc_type=c_type)
     return num_features
 
-def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form="powerspectrum",global_form="powerspectrum"):
+def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form="powerspectrum",global_form="powerspectrum",gnmax=None,glmax=None,grcut=None):
     """
     For each density grid point in xyz, calculate local power/bi-spectrum
     features. Compute the global crystal representation using power/bi-spectrum
@@ -26,7 +26,10 @@ def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form=
         parallel=parallel,form=local_form)
 
     if global_form is not None:
-        globalX = global_features(cell=cell,atom_pos_uvw=atom_pos_uvw,nmax=nmax,lmax=lmax,form=global_form)
+        gnmax = nmax if (gnmax is None) else gnmax
+        glmax = lmax if (glmax is None) else glmax
+        grcut = 6.0 if (grcut is None) else grcut
+        globalX = global_features(cell=cell,atom_pos_uvw=atom_pos_uvw,nmax=gnmax,lmax=glmax,rcut=grcut,form=global_form)
         X = np.hstack(( localX , np.tile(globalX,(localX.shape[0],1)) ))
     else:
         X = localX
@@ -91,10 +94,10 @@ def global_features(cell,atom_pos_uvw,nmax,lmax,rcut=6.0,form="powerspectrum",bu
     Return the global power/bi-spectrum vector for a crystal using tapered
     local approximations for the radial bases
     """
-    if form not in ["powerspectrum","bispectrum"]:
+    if form not in ["powerspectrum","bispectrum","axial-bispectrum"]:
         raise FeaturesError("bispectrum type {} not supported".format(form))
 
-    c_type = {"powerspectrum":0,"bispectrum":1}[form]
+    c_type = {"powerspectrum":0,"bispectrum":1,"axial-bispectrum":2}[form]
     num_features = f90_num_features(lmax=lmax,nmax=nmax,calc_type=c_type)
 
     X = np.zeros(num_features,dtype=np.float64,order='F')
