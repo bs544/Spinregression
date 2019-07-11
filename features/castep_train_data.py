@@ -245,7 +245,6 @@ class castep_data():
                 
                 saved_data.append(saved_dict)
 
-        print(len(datafiles))
         #Check how many of the files were successfully loaded. If the answer is none, then the load was bad.
         if (len(saved_data)==len(datafiles) and len(datafiles)>0):
             if (self.verbose):
@@ -424,7 +423,7 @@ class castep_data():
                    (list) specific cells to get the data for
                    If None, then all of the cells available are processed
             fpargs: (dict) arguments for fingerprint calculations. Expected to contain some of:
-                        local_fptype, global_fptype, nmax, lmax, rcut
+                        local_fptype, global_fptype, nmax, lmax, rcut, gnmax, glmax, grcut (g for global, if that wasn't clear)
                     If None, then default values are used
             sampargs: (dict) arguments for sampling from data. Expected to contain some of:
                     sampling_type and depending on sampling type: weighting, high_fraction, low_fraction, threshold, cutoff
@@ -452,13 +451,13 @@ class castep_data():
         """
 
         #fingerprints section almost exclusively the work of Andrew Fowler, only exception is the axial bispectrum
-        from fingerprints.bispectrum import calculate
-        from sample_idx import get_points_near_atoms, get_sampled_idx
+        from features.bispectrum import calculate
+        from features.sample_idx import get_points_near_atoms, get_sampled_idx
         import time
 
         data = {}
 
-        default_fpargs = {'nmax':4,'lmax':4,'local_fptype':'axial-bispectrum','global_fptype':'powerspectrum'}
+        default_fpargs = {'nmax':4,'lmax':4,'local_fptype':'axial-bispectrum','global_fptype':'powerspectrum','gnmax':None,'glmax':None,'grcut':None}
 
         allowed_sampling_methods = ['value_weighted','split','proximity']
         default_sampargs = {'value_weighted':{'weighting':'linear'},\
@@ -548,25 +547,26 @@ class castep_data():
         if (self.verbose):
             print("Data collected, time taken {0:.2f}s ".format(time.time()-start))
         
-        fp = np.asarray(fp)
-        xyz = np.asarray(xyz)
-        edensity = np.asarray(edensity)
+        fp = np.concatenate(fp,axis=0)
+        xyz = np.concatenate(xyz,axis=0)
+        edensity = np.concatenate(edensity,axis=0)
         if (self.include_init):
             init_edensity = np.asarray(init_edensity)
 
         if (self.nspins>0):
-            sdensity = np.asarray(sdensity)
+            sdensity = np.concatenate(sdensity,axis=0)
             if (self.include_init):
-                init_sdensity = np.asarray(init_sdensity)
+                init_sdensity = np.concatenate(init_sdensity,axis=0)
 
-        num_gridpoints = fp.shape[0]*fp.shape[1]
-
+        #num_gridpoints = fp.shape[0]*fp.shape[1]
+        num_gridpoints = fp.shape[0]
         #the following reshape should preserve the order of the indices further to the right
         #so the data extracted could be divided up into separate cells again.
-        fp = fp.reshape(num_gridpoints,fp.shape[-1])
-        xyz = xyz.reshape(num_gridpoints,xyz.shape[-1])
+        #hopefully using the same np.contatenate on all of these will do the same thing
+        #fp = fp.reshape(num_gridpoints,fp.shape[-1])
+        #xyz = xyz.reshape(num_gridpoints,xyz.shape[-1])
 
-        edensity = edensity.reshape(num_gridpoints,1)
+        #edensity = edensity.reshape(num_gridpoints,1)
         
 
         data['xyz'] = xyz

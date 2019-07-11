@@ -33,6 +33,7 @@ def rmse_plot(net):
 
     legend = []
     for i in range(rmse.shape[0]):
+        print(min(rmse_val[i,:]))
         plt.plot(x,rmse[i,:])
         plt.plot(x_val,rmse_val[i,:])
         legend.append('Net {} Train'.format(i+1))
