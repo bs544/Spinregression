@@ -75,7 +75,10 @@ def get_sampled_idx(data,method,kwargs):
 
     allowed_methods = ['value_weighted','split']
     default_kwargs = {'value_weighted':{'weighting':'linear','keep_fraction':0.1},\
-        'split':{'high_fraction':0.95,'low_fraction':None,'highlow_ratio':0.75,'threshold':0.9*len(data)}}
+        'split':{'high_fraction':0.95,'low_fraction':None,'highlow_ratio':0.75,'threshold':0.9}}
+
+    #threshold defines the separation between the high and low indices. Defined as a fraction of the number of points
+    # for example 0.9 means 90% of the data is in the low region and only the highest 10% are classed as high
     
     #highlow ratio is (#high indices/total indices)
 
@@ -153,6 +156,34 @@ def get_sampled_idx(data,method,kwargs):
         keep_idx = np.hstack((high_train,low_train))
 
     return keep_idx
+
+def get_train_test_data(x,y,train_fraction):
+    """
+    Parameters:
+        x: (array) shape (N,*) where N is the number of data points and * is the length of the descriptor. The x data to be split
+        y: (array) shape (N,*) where N is the number of data points and * is the number of target values. The y data to be split
+        train_fraction: (float) value between 0 and 1, 1 means that all of the data is used in training, 0 means it's all used in testing
+    Returns:
+        train_data: (array) shape (train_fraction*N,) random sample from data
+        test_data: (array) shape ((1-train_fraction)*N,) random sample from data
+    """
+    assert (x.shape[0] == y.shape[0]), "x and y have incompatible lengths. x.shape = {}, y.shape = {}".format(x.shape,y.shape)
+    
+    shuffle_idx = np.random.choice(range(y.shape[0]),y.shape[0],replace=False)
+    train_len = int(train_fraction*y.shape[0])
+
+
+    if (len(y.shape) == 1):
+        train_y = y[shuffle_idx[:train_len]]
+        test_y = y[shuffle_idx[train_len:]]
+    else:
+        train_y = y[shuffle_idx[:train_len],:]
+        test_y = y[shuffle_idx[train_len:],:]
+    
+    train_x = x[shuffle_idx[:train_len],:]
+    test_x = x[shuffle_idx[train_len:],:]
+
+    return train_x, train_y, test_x, test_y
 
 def get_sampled_trainNtest(data,method='uniform',**kwargs):
     """
