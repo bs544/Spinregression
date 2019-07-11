@@ -236,8 +236,8 @@ class SingleTargetGaussianRegressor():
         dtype=args.dtype
 
         #mean may need to be a vector, and std a matrix, in order to interface with the rest of the code
-        o_mean = 0.0
-        o_std = 0.1
+        o_mean = [0.0]
+        o_std = [[0.1]]
 
         # x,y placeholders
         self.input_data  = tf.placeholder(dtype, [None, sizes[0]])
@@ -271,13 +271,15 @@ class SingleTargetGaussianRegressor():
         self.raw_mean, self.raw_var = tf.split(self.output, [1,1], axis=1)
 
         #output transform mean
-        self.mean = tf.add(self.output_mean,tf.multiply(self.raw_mean,self.output_std))
+        self.mean = tf.add(self.output_mean[0],tf.multiply(self.raw_mean,self.output_std[0,0]))
 
-        self.var = tf.multiply(self.raw_var,self.output_var)
+        self.in_var = tf.multiply(self.raw_var,self.output_var[0,0])
+
+        self.var = tf.reshape(self.in_var,[-1,1,1])
 
         #self.var = tf.square(self.std)
 
-        self.loss_value = gaussian_nll(self.mean,self.var,self.target_data)
+        self.loss_value = gaussian_nll(self.mean,self.in_var,self.target_data)
 
         tvars = tf.trainable_variables()
 

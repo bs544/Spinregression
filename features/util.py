@@ -75,25 +75,25 @@ class format_data():
             if (len(self.ys.shape)==1):
                 self.y_dim = 1
                 # need (N,1) rather than (N,) for all but the single target method
-                if (not self.single_target):
-                    self.ys = np.reshape(self.ys,(-1,1))
-                    self.target_mean = np.mean(self.ys,0)
-                    self.target_std = np.std(self.ys,0).reshape(-1,1)
-                else:
-                    self.target_mean = np.mean(self.ys)
-                    self.target_std = np.std(self.ys)
+                # if (not self.single_target):
+                self.ys = np.reshape(self.ys,(-1,1))
+                self.target_mean = np.mean(self.ys,0)
+                self.target_std = np.std(self.ys,0).reshape(-1,1)
+                # else:
+                #     self.target_mean = np.mean(self.ys)
+                #     self.target_std = np.std(self.ys)
 
             elif (self.ys.shape[1] == 1):
                 self.y_dim = 1
 
                 #this is the right shape for all but the single target method
-                if (not self.single_target):
-                    self.target_mean = np.mean(self.ys,0)
-                    self.target_std = np.std(self.ys,0).reshape(-1,1)
-                else:
-                    self.ys = self.ys[:,0]
-                    self.target_mean = np.mean(self.ys)
-                    self.target_std = np.std(self.ys)
+                # if (not self.single_target):
+                self.target_mean = np.mean(self.ys,0)
+                self.target_std = np.std(self.ys,0).reshape(-1,1)
+                # else:
+                #     self.ys = self.ys[:,0]
+                #     self.target_mean = np.mean(self.ys)
+                #     self.target_std = np.std(self.ys)
 
 
 
@@ -108,8 +108,12 @@ class format_data():
                 N_val = int(N_data*val_frac)
                 if (self.val_idx is None):
                     self.val_idx = np.random.choice(np.arange(N_data),size=N_data,replace=False)
+                # if (not self.single_target):
                 self.ys_val = self.ys[self.val_idx[:N_val],:]
                 self.ys = self.ys[self.val_idx[N_val:],:]
+                # else:
+                #     self.ys_val = self.ys[self.val_idx[:N_val]]
+                #     self.ys = self.ys[self.val_idx[N_val:]]
 
 
     def set_batch_size(self,batch_size):
@@ -172,6 +176,7 @@ class format_data():
         for i in range(n_batches):
             x_batch.append(self.xs_standardized[idx[i*self.batch:(i+1)*self.batch],:])
             y_batch.append(self.ys[idx[i*self.batch:(i+1)*self.batch],:])
+
 
 
         return x_batch, y_batch

@@ -158,10 +158,12 @@ class regressor():
 
         return mean,np.sqrt(var)
     
-    def predict_individual_values(self,X):
+    def predict_individual_values(self,X,model_idx=None):
         """
         Make predictions for individual networks in the ensemble, only returns means for RMSE calculations
         Only implemented for the standard-ensemble and nonbayes ensembles
+
+        model_idx specifies which network in the ensemble to use, if it's None, then get the data for all of the values
         """
 
         #X has shape [num_values,fingerprint_length]
@@ -172,7 +174,12 @@ class regressor():
 
         means = np.zeros((self.Nensemble,num_values,self.train_data.y_dim))
 
-        for ii,model in enumerate(self.session["ensemble"]):
+        if (model_idx is None):
+            model_list = [i for i in range(len(self.session['ensemble']))]
+        else:
+            model_list = [model_idx]
+
+        for ii,model in enumerate([self.session['ensemble'][idx] for idx in model_list]):
             feed = {model.input_data: xs}
 
             if self.method == 'nonbayes':
@@ -185,7 +192,7 @@ class regressor():
                 means[ii,:,:] = mean[0]
             
             elif self.method == "single_target_gaussian":
-                mean = self.session["tf_session"].run([model.mean],feed)
+                mean = self.session["tf_session"].run(model.mean,feed)
                 means[ii,:,:] = mean
         
         return means
@@ -282,8 +289,8 @@ class regressor():
 
                     if np.mod(cntr,10)==0:
                         self.loss[model_idx].append(loss)
-                        self.rmse[model_idx].append(np.sqrt(mse(self.predict(self.train_data.xs[::10])[0],self.train_data.ys[::10],multioutput='raw_values')))
-                        self.rmse_val[model_idx].append(np.sqrt(mse(self.predict(self.train_data.xs_val)[0],self.train_data.ys_val,multioutput='raw_values')))
+                        self.rmse[model_idx].append(np.sqrt(mse(self.predict_individual_values(self.train_data.xs[::10],model_idx)[0],self.train_data.ys[::10],multioutput='raw_values')))
+                        self.rmse_val[model_idx].append(np.sqrt(mse(self.predict_individual_values(self.train_data.xs_val,model_idx)[0],self.train_data.ys_val,multioutput='raw_values')))
 
                     cntr += 1
                     if np.mod(cntr,100)==0:
@@ -329,9 +336,9 @@ class regressor():
                 
                 feed = {model.input_data: xs}
                 mean,var = self.session["tf_session"].run([model.mean,model.var],feed)
-                if (self.method == "single_target_gaussian"):
-                    var = var.reshape(-1,1,1)
-                    mean = mean.reshape(-1,1,1)
+                # if (self.method == "single_target_gaussian"):
+                #     var = var.reshape(-1,1,1)
+                #     mean = mean.reshape(-1,1,1)
                 vars[ii,:,:,:] = var#np.linalg.norm(np.linalg.eigvals(var),axis=1)
                 means[ii,:,:] = mean
                 #var = np.linalg.eigvals(val)
