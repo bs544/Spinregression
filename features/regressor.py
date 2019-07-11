@@ -540,6 +540,7 @@ class regressor():
     def Close_session(self):
         if not self.session["tf_session"]._closed:
             self.session["tf_session"].close
+            tf.reset_default_graph()
 
 
 
