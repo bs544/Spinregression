@@ -9,9 +9,7 @@ os.environ['KMP_AFFINITY'] = 'noverbose'
 from features.util import format_data,toy_argparse
 import pickle
 
-from features.heuristic_model import MLPGaussianRegressor,MLPDropoutGaussianRegressor,MLPDensityMixtureRegressor,NoLearnedCovariance
-from features.bayes import vi_bayes
-#from edward import KLqp
+from features.heuristic_model import MLPGaussianRegressor,NoLearnedCovariance,SingleTargetGaussianRegressor
 from sklearn.metrics import mean_squared_error as mse
 import copy
 import warnings
@@ -27,19 +25,14 @@ class regressor():
     def __init__(self,method="nonbayes",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
     batch_size=1.0,dtype=tf.float64,method_args={},load=None):
         """
-        Interface to regression using heuristic ensembles or VI Bayes. In both
-        cases, uncertainties are made by an ensemble of nets or repeated
-        sampling of posterior predictive distribution in the case of Bayes.
+        Interface to regression using heuristic ensembles. Uncertainties are made by an ensemble of nets
 
-        Detailed outline of methods can be found
+        Detailed outline of the method can be found
 
         (heuristic) : arXiv:1612.01474, Simple and Scalable Predictive
         Uncertainty Estimation using Deep Ensembles, (2017)
-
-        (VI bayes) : arXiv:1610.09787, Edward: A library for probabilistic
-        modeling, inference, and criticism
         """
-        self.supp_methods = ["nonbayes","nonbayes_dropout","nonbayes-mdn","vi_bayes","standard_ensemble"]
+        self.supp_methods = ["nonbayes","standard_ensemble","single_target_gaussian"]
 
         if load is None:
             self.set_method(method)
@@ -69,8 +62,7 @@ class regressor():
 
     def set_Nensemble(self,Nensemble):
         """
-        Set either size of ensemble in heuristic approach, or number of samples
-        drawn from posterio predictive distribution in Bayes approach
+        Set size of ensemble in heuristic approach
         """
         if not isinstance(Nensemble,int) or Nensemble<1: raise GeneralError("invalid ensemble size {}".format(Nensemble))
         self.Nensemble = Nensemble
@@ -84,16 +76,13 @@ class regressor():
     def set_method_args(self,method_args):
         """
         set method specific arguments
+        gradient clipping caps the value of the gradient used by the optimiser to avoid gradient explosion
         """
-        default_values = {"nonbayes":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0,"learn_inverse":True},\
-                          "nonbayes-mdn":{"learning_rate":1e-2,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,\
-                                "grad_clip":100.0},\
-                          "nonbayes_dropout":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,\
-                          "grad_clip":100.0,"keep_prob":0.8},\
-                          "vi_bayes":{},\
-                          "standard_ensemble":{"learning_rate":5e-3,"decay_rate":0.99,"alpha":0.5,"epsilon":1e-2,"grad_clip":100.0}}
+        default_values = {"nonbayes":{"learning_rate":5e-3,"decay_rate":0.99,"grad_clip":100.0,"learn_inverse":True},\
+                          "standard_ensemble":{"learning_rate":5e-3,"grad_clip":100.0,"decay_rate":0.99},\
+                          "single_target_gaussian":{"learning_rate":5e-3,"grad_clip":100.0,"decay_rate":0.99}}
 
-        for _method in ["nonbayes","nonbayes-mdn","nonbayes_dropout","standard_ensemble"]:
+        for _method in ["nonbayes","standard_ensemble","single_target_gaussian"]:
             default_values[_method].update({"opt_method":"rmsprop"})
 
         if any([_arg not in default_values[self.method].keys() for _arg in method_args.keys()]):
@@ -133,7 +122,8 @@ class regressor():
         """
 
         # initial net weights assume 0 mean, 1 standard deviation
-        self.train_data = format_data(X=X,y=y)
+        # feed in method as well so that training data need only by scalars for single target data
+        self.train_data = format_data(X=X,y=y,method=self.method)
         self.y_dim = self.train_data.y_dim
 
         # set mini batch size
@@ -142,35 +132,28 @@ class regressor():
         # feature dimensionality
         self.D = self.train_data.xs_standardized.shape[1]
 
-        if self.method in  ["nonbayes","nonbayes_dropout","nonbayes-mdn","standard_ensemble"]:
-            rmse, rmse_val = self._fit_nonbayes()
-        elif self.method == "vi_bayes":
-            rmse = self._fit_bayes()
+        rmse, rmse_val = self._fit_nonbayes()
+        
         return rmse, rmse_val
 
-    def predict(self,X,Nsample=None):
+    def predict(self,X):
         """
-        Make predictions. For VI Bayes methods, can improve predictive
-        uncertainty by increasing number of samples drawn from posterior
-        predictive distribution - see method : set_Nensemble()
+        Make predictions.
 
         Arguments
         ---------
-        Nsample : int
-            For bayes method. If given, the number of samples drawn from
-            approximate posterior distribution. Otherwise, self.Nensemble
-            samples are drawn
+        X: input data that has yet to be centred and standardised
+        
+        Returns
+        ---------
+        mean of precictions
+        predicted standard deviation
         """
         # use shift and scaling from training data
         xs_test = self.train_data.get_xs_standardized(X)
 
-        # numer of samples to draw from approx. posterior or MC dropout
-        if Nsample is None: Nsample = self.Nensemble
-
-        if self.method in ["nonbayes","nonbayes_dropout","nonbayes-mdn","standard_ensemble"]:
-            mean,var = self._predict_nonbayes(xs_test,Nsample)
-        elif self.method == "bayes":
-            mean,var = self._predict_bayes(xs_test,Nsample)
+        if self.method in ["nonbayes","standard_ensemble","single_target_gaussian"]:
+            mean,var = self._predict_nonbayes(xs_test)
         else: raise NotImplementedError
 
         return mean,np.sqrt(var)
@@ -193,13 +176,17 @@ class regressor():
             feed = {model.input_data: xs}
 
             if self.method == 'nonbayes':
-                mean,var = self.session["tf_session"].run([model.mean,model.var],feed)
+                mean = self.session["tf_session"].run([model.mean],feed)
                 means[ii,:,:] = mean
 
 
             elif self.method == "standard_ensemble":
                 mean = self.session["tf_session"].run([model.mean],feed)
                 means[ii,:,:] = mean[0]
+            
+            elif self.method == "single_target_gaussian":
+                mean = self.session["tf_session"].run([model.mean],feed)
+                means[ii,:,:] = mean
         
         return means
 
@@ -210,14 +197,11 @@ class regressor():
         if not os.path.isdir(prefix):
             os.mkdir('./{}'.format(prefix))
 
-        if self.method in ["nonbayes","nonbayes_dropout","nonbayes-mdn","standard_ensemble"]:
-            self._save_nonbayes(prefix)
-        elif self.method == "bayes":
-            self._save_bayes(prefix)
+        self._save_nonbayes(prefix)
 
     def load(self,prefix="model"):
         """
-        load prefiously saved model
+        load previously saved model
         """
         if not os.path.isdir(prefix): raise GeneralError("Cannot find save directory {}".format(prefix))
         with open('{}/{}.pckl'.format(prefix,prefix),'rb') as f:
@@ -227,37 +211,31 @@ class regressor():
             # load all non tf attributes
             setattr(self,_attr,attributes[_attr])
 
-        if self.method in ["nonbayes","nonbayes_dropout","nonbayes-mdn","standard_ensemble"]:
-            self._load_nonbayes(prefix)
-        elif self.method == "bayes":
-            self._load_bayes(prefix)
+        self._load_nonbayes(prefix)
 
     def _init_MLPGaussianRegressor(self):
         combine_args = copy.deepcopy(self.method_args)
         for _attr in ["activation","dtype"]:
             combine_args.update({_attr:getattr(self,_attr)})
 
-        if self.method == "nonbayes-mdn":
-            combine_args.update({"num_components":self.Nensemble})
-
         # a class with key,value as attribute name,value
         args = toy_argparse(combine_args)
 
         if self.method == "nonbayes":
             final = [int(self.y_dim+self.y_dim*(self.y_dim+1)/2)]
+            self.session["ensemble"] = [MLPGaussianRegressor(args,\
+                [self.D]+list(self.layers)+final, 'model'+str(i)) for i in range(self.Nensemble)]
+            
 
-            self.session["ensemble"] = [MLPGaussianRegressor(args, \
-                    [self.D]+list(self.layers)+final, 'model'+str(i)) for i in range(self.Nensemble)]
         elif self.method == "standard_ensemble":
             final = [int(self.y_dim)]
             self.session["ensemble"] = [NoLearnedCovariance(args,\
-                    [self.D]+list(self.layers)+final, 'model'+str(i)) for i in range(self.Nensemble)]
-        elif self.method == "nonbayes_dropout":
-            # single instance, sample same net with different nodes dropped each sample
-            self.session["ensemble"] = [MLPDropoutGaussianRegressor(args,[self.D]+list(self.layers)+[2], 'model1')]
-        elif self.method == "nonbayes-mdn":
-            self.session["ensemble"] = [MLPDensityMixtureRegressor(args,\
-                    [self.D]+list(self.layers)+[3*self.Nensemble], 'model1')]
+                [self.D]+list(self.layers)+final, 'model'+str(i)) for i in range(self.Nensemble)]
+        
+        elif self.method == "single_target_gaussian":
+            final = [2]
+            self.session["ensemble"] = [SingleTargetGaussianRegressor(args,\
+                [self.D]+list(self.layers)+final,'model'+str(i)) for i in range(self.Nensemble)]      
 
     def _fit_nonbayes(self):
         self.session = {"tf_session":None,"saver":None,"ensemble":None}
@@ -273,19 +251,18 @@ class regressor():
 
         for model in self.session["ensemble"]:
             self.session["tf_session"].run(tf.assign(model.output_mean,self.train_data.target_mean))
-            if (self.method != "standard_ensemble"):
+            if (self.method in ["nonbayes","single_target_gaussian"]):
                 self.session["tf_session"].run(tf.assign(model.output_std,self.train_data.target_std))
 
 
         # keep value of minibatch loss so convergence can be checked at end
         self.loss = [[] for ii in range(self.Nensemble)]
         self.rmse = [[] for ii in range(self.Nensemble)]
+        self.rmse_val = [[] for ii in range(self.Nensemble)]
 
         maxiter_per_minibatch = int(1.0/self.batch_size)#10
         num_minibatch = max([1,int(self.maxiter/maxiter_per_minibatch)])
 
-        #for itr in range(self.maxiter):
-        #    for model in self.session["ensemble"]:
         for model_idx,model in enumerate(self.session["ensemble"]):
             print("Training Network {} of {}".format(model_idx+1,self.Nensemble))
             cntr = 0
@@ -300,21 +277,13 @@ class regressor():
                 for minibatch_iter in range(maxiter_per_minibatch):
                     feed = {model.input_data: x_batches[minibatch_iter], model.target_data: y_batches[minibatch_iter]}
 
-                    if self.method == "nonbayes_dropout":
-                        feed.update({model.dr : self.method_args["keep_prob"]})
+                    _,loss = self.session["tf_session"].run([model.train_op,model.loss_value], feed)
 
-                    if self.method == "nonbayes":
-                        _,loss = self.session["tf_session"].run([model.train_op,model.loss_value], feed)
-                    if self.method == "nonbayes-mdn":
-                        _  = self.session["tf_session"].run([model.train_op], feed)
-                    elif self.method == "nonbayes_dropout":
-                        _,loss = self.session["tf_session"].run([model.train_op, model.nll], feed)
-                    elif self.method == "standard_ensemble":
-                        _, loss = self.session["tf_session"].run([model.train_op,model.loss_value],feed)
 
                     if np.mod(cntr,10)==0:
                         self.loss[model_idx].append(loss)
-                        self.rmse[model_idx].append(np.sqrt(mse(self.predict(self.train_data.xs_val)[0],self.train_data.ys_val,multioutput='raw_values')))
+                        self.rmse[model_idx].append(np.sqrt(mse(self.predict(self.train_data.xs[::10])[0],self.train_data.ys[::10],multioutput='raw_values')))
+                        self.rmse_val[model_idx].append(np.sqrt(mse(self.predict(self.train_data.xs_val)[0],self.train_data.ys_val,multioutput='raw_values')))
 
                     cntr += 1
                     if np.mod(cntr,100)==0:
@@ -322,35 +291,22 @@ class regressor():
                         self.session["tf_session"].run(tf.assign(model.lr,\
                                 self.method_args["learning_rate"]*(self.method_args["decay_rate"]**(cntr/100))))
 
-            if False:
-                # do final local gradient descent on full data set
-                model.set_optimizer(toy_argparse({"opt_method":"gradientdescent",\
-                        "learning_rate":self.method_args["learning_rate"]}))
-
-                feed = {model.input_data:self.train_data.xs_standardized,model.target_data : self.train_data.ys}
-
-                loss_before = self.session["tf_session"].run([model.loss_value],feed)
-                for cntr in range(self.maxiter):
-                    _ = self.session["tf_session"].run([model.train_op],feed)
-
-                loss_after = self.session["tf_session"].run([model.loss_value],feed)
-
-                print("loss before = {} loss after = {}".format(loss_before,loss_after))
 
         # for easy slicing upon analysis
         self.loss = np.asarray(self.loss)
         self.rmse = np.asarray(self.rmse)
+        self.rmse_val = np.asarray(self.rmse_val)
 
         # pass in standardized data
-        pred_mean,pred_std = self._predict_nonbayes(self.train_data.xs_standardized,self.Nensemble)
+        pred_mean,_ = self._predict_nonbayes(self.train_data.xs_standardized)
         val_xs = self.train_data.get_xs_standardized(self.train_data.xs_val)
-        pred_mean_val,pred_std_val = self._predict_nonbayes(val_xs,self.Nensemble)
+        pred_mean_val,_ = self._predict_nonbayes(val_xs)
 
         rmse = np.sqrt(mse(self.train_data.ys,pred_mean,multioutput='raw_values'))
         rmse_val = np.sqrt(mse(self.train_data.ys_val,pred_mean_val,multioutput='raw_values'))
         return rmse, rmse_val
 
-    def _predict_nonbayes(self,xs,Nsample):
+    def _predict_nonbayes(self,xs):
         num_values = xs.shape[0]
         def batch_cov(x,swap_axes=True):
             #batch dimension is 1 (starting from 0)
@@ -364,104 +320,50 @@ class regressor():
             batch_cov = np.einsum('nji,njk->nik',m,m)/(N-1)
             return batch_cov
 
-        if self.method in ["nonbayes_dropout","nonbayes"]:
+        if self.method in ["single_target_gaussian","nonbayes"]:
             means = np.zeros((self.Nensemble,num_values,self.train_data.y_dim))
             vars = np.zeros((self.Nensemble,num_values,self.train_data.y_dim,self.train_data.y_dim))
             cntr = 0
 
             for ii,model in enumerate(self.session["ensemble"]):
-                if self.method == "nonbayes_dropout":
-                    num_samples = Nsample
-                else:
-                    num_samples = 1
+                
+                feed = {model.input_data: xs}
+                mean,var = self.session["tf_session"].run([model.mean,model.var],feed)
+                if (self.method == "single_target_gaussian"):
+                    var = var.reshape(-1,1,1)
+                    mean = mean.reshape(-1,1,1)
+                vars[ii,:,:,:] = var#np.linalg.norm(np.linalg.eigvals(var),axis=1)
+                means[ii,:,:] = mean
+                #var = np.linalg.eigvals(val)
+                    #var = np.array([var[:,0,0],var[:,1,1]]).T
+                # en_mean += mean
+                # en_var += var + np.sqrt(np.sum(np.square(mean)))
 
-                for _draw_sample in range(num_samples):
-
-                    feed = {model.input_data: xs}
-                    if self.method == "nonbayes_dropout":
-                        feed.update({model.dr : self.method_args["keep_prob"]})
-                    mean,var = self.session["tf_session"].run([model.mean,model.var],feed)
-                    vars[ii,:,:,:] = var#np.linalg.norm(np.linalg.eigvals(var),axis=1)
-                    means[ii,:,:] = mean
-                    #var = np.linalg.eigvals(val)
-                        #var = np.array([var[:,0,0],var[:,1,1]]).T
-                    # en_mean += mean
-                    # en_var += var + np.sqrt(np.sum(np.square(mean)))
-
-                    # count number of samples drawn
-                    cntr += 1
+                # count number of samples drawn
+                cntr += 1
 
             en_mean = np.mean(means,axis=0)#dimensions of num_values, y_dim
             en_var = np.mean(vars,axis=0) - batch_cov(means-en_mean)#np.sqrt(np.sum(np.square(en_mean)))#en_mean**2
             en_var = np.linalg.norm(np.linalg.eigvals(en_var),axis=1)
+
         elif self.method == "standard_ensemble":
             means = np.zeros((self.Nensemble,num_values,self.train_data.y_dim))
             cntr = 0
 
             for ii,model in enumerate(self.session["ensemble"]):
 
-                    feed = {model.input_data: xs}
-                    mean = self.session["tf_session"].run([model.mean],feed)
-                    means[ii,:,:] = mean[0]
-                    cntr += 1
+                feed = {model.input_data: xs}
+                mean = self.session["tf_session"].run([model.mean],feed)
+                means[ii,:,:] = mean[0]
+                cntr += 1
 
             en_mean = np.mean(means,axis=0)#dimensions of num_values, y_dim
             en_var = batch_cov(means-en_mean)#np.sqrt(np.sum(np.square(en_mean)))#en_mean**2
             en_var = np.linalg.norm(np.linalg.eigvals(en_var),axis=1)
-        elif self.method == "nonbayes-mdn":
-            model = self.session["ensemble"][0]
 
-            feed = {model.input_data:xs}
-
-            # shape = [N,k] for gaussian mixture mean,variance and mixing coefficients
-            mu,var,pi = self.session["tf_session"].run([model.mean,model.var,model.mix_coeff],feed)
-
-            # expected meanm en_mean_i = sum_k mu_ik pi_ik (weighted sum over mixture components)
-            #en_mean = np.diag(np.dot(mu,pi.T))
-            en_mean = np.einsum("ij,ij->i",mu,pi)
-
-            #np.testing.assert_array_almost_equal(en_mean,np.diag(np.dot(mu,pi.T)))
-
-            # number of components in mixture
-            K = mu.shape[1]
-
-            # [ var_ik + (mu_ik - en_mean_i)**2 ]
-            var_term = var + np.square(mu - np.tile(en_mean,(K,1)).T)
-            #var_term = var #+ np.square(mu - np.tile(en_mean,(K,1)).T)
-
-
-            # en_var_i = sum_k pi_ik * [ var_ik + (mu_ik - en_mean_i)**2 ]
-            #en_var = np.diag(np.dot(var + np.square( mu - np.tile(en_mean,(K,1)).T ) , pi.T))
-            en_var = np.einsum("ij,ij->i",var_term,pi)
-
-            #np.testing.assert_array_almost_equal(en_var,\
-            #        np.diag(np.dot(var + np.square( mu - np.tile(en_mean,(K,1)).T ) , pi.T)))
         else: raise NotImplementedError
 
         return en_mean,en_var
-
-    def _init_bayes(self):
-        combine_args = self.method_args
-        for _attr in ["activation","dtype"]:
-            combine_args.update({_attr:getattr(self,_attr)})
-        args = toy_argparse(combine_args)
-
-        self.session["bayes_net"] = vi_bayes(args=args,layers=[self.D]+list(self.layers))
-
-    def _fit_bayes(self):
-        self.session = {"tf_session":None,"saver":None,"bayes_net":None}
-
-        # initialise tf variables
-        self._init_bayes()
-
-        rmse = self.session["bayes_net"].fit(X=self.train_data.xs_standardized,y=self.train_data.ys)
-        return rmse
-
-
-    def _predict_bayes(self,xs,Nsample):
-        y_pred,y_std = self.session["bayes_net"].predict(xs,Nsample)
-
-        return y_pred,y_std
 
     def _save_nonbayes(self,prefix):
         attributes = {}
@@ -522,9 +424,6 @@ class regressor():
             pickle.dump(data,f)
         f.close()
 
-    def _save_bayes(self,prefix):
-        raise NotImplementedError
-
     def _load_nonbayes(self,prefix):
         self.session = {"tf_session":None,"ensemble":None,"saver":None}
         self._init_MLPGaussianRegressor()
@@ -533,15 +432,11 @@ class regressor():
         #self.session["saver"] = tf.train.Saver(tf.global_variables())
         self.session["saver"] = tf.train.Saver([_v for _v in tf.global_variables() if "RMSProp" not in _v.name])
         self.session["saver"].restore(self.session["tf_session"],"{}/{}".format(prefix,prefix))
-
-    def _load_bayes(self,prefix):
-        raise NotImplementedError
     
     def Close_session(self):
         if not self.session["tf_session"]._closed:
             self.session["tf_session"].close
             tf.reset_default_graph()
-
 
 
 

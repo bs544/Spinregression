@@ -1,13 +1,13 @@
 import numpy as np
 from features.powerspectrum_f90api import f90wrap_write_density_to_disk as f90_write_den
-import scipy
+import scipy.linalg as linalg
 
 class test_class():
     def __init__(self):
         pass
 
 class format_data():
-    def __init__(self,X=None,y=None,val_fraction=0.05):
+    def __init__(self,X=None,y=None,method='',val_fraction=0.05):
         """
         Pre processing involved for input to neural net
         """
@@ -22,6 +22,9 @@ class format_data():
         self.val_fraction = val_fraction
         self.val_idx=None
         self.batch = None
+
+        single_target_methods = ["single_target_gaussian"]
+        self.single_target = True if (method in single_target_methods) else False
 
         if X is not None and y is not None:
             self.set_data(X=X,y=y,val_frac=self.val_fraction)
@@ -71,20 +74,34 @@ class format_data():
 
             if (len(self.ys.shape)==1):
                 self.y_dim = 1
-                # need (N,1) rather than (N,)
-                self.ys = np.reshape(self.ys,(-1,1))
-                self.target_mean = np.mean(self.ys,0)
-                self.target_std = np.std(self.ys,0).reshape(-1,1)
+                # need (N,1) rather than (N,) for all but the single target method
+                if (not self.single_target):
+                    self.ys = np.reshape(self.ys,(-1,1))
+                    self.target_mean = np.mean(self.ys,0)
+                    self.target_std = np.std(self.ys,0).reshape(-1,1)
+                else:
+                    self.target_mean = np.mean(self.ys)
+                    self.target_std = np.std(self.ys)
 
             elif (self.ys.shape[1] == 1):
                 self.y_dim = 1
-                self.target_mean = np.mean(self.ys,0)
-                self.target_std = np.std(self.ys,0).reshape(-1,1)
+
+                #this is the right shape for all but the single target method
+                if (not self.single_target):
+                    self.target_mean = np.mean(self.ys,0)
+                    self.target_std = np.std(self.ys,0).reshape(-1,1)
+                else:
+                    self.ys = self.ys[:,0]
+                    self.target_mean = np.mean(self.ys)
+                    self.target_std = np.std(self.ys)
+
+
 
             else:
+                assert (not self.single_target), "Method single_target_gaussian unable to train with multiple targets"
                 self.y_dim = self.ys.shape[1]
                 self.target_mean = np.mean(self.ys,0)
-                self.target_std = scipy.linalg.sqrtm(np.cov(self.ys.T))
+                self.target_std = linalg.sqrtm(np.cov(self.ys.T))
 
             if (val_frac is not None):
                 N_data = self.ys.shape[0]
