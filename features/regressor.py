@@ -23,7 +23,7 @@ with warnings.catch_warnings():
 
 class regressor():
     def __init__(self,method="nonbayes",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
-    batch_size=1.0,dtype=tf.float64,method_args={},load=None):
+    batch_size=1.0,dtype=tf.float64,method_args={},load=None,val_frac=0.05):
         """
         Interface to regression using heuristic ensembles. Uncertainties are made by an ensemble of nets
 
@@ -43,6 +43,7 @@ class regressor():
             self.set_activation(activation)
             self.set_batch_size(batch_size)
             self.set_dtype(dtype)
+            self.val_frac=val_frac
         else:
             self.load(load)
 
@@ -123,7 +124,7 @@ class regressor():
 
         # initial net weights assume 0 mean, 1 standard deviation
         # feed in method as well so that training data need only by scalars for single target data
-        self.train_data = format_data(X=X,y=y,method=self.method)
+        self.train_data = format_data(X=X,y=y,method=self.method,val_fraction=self.val_frac)
         self.y_dim = self.train_data.y_dim
 
         # set mini batch size
