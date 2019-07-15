@@ -63,7 +63,8 @@ class NoLearnedCovariance():
 
         x = self.input_data
         for i in range(0, len(sizes)-2):
-            x = activation_func(tf.add(tf.matmul(x, self.weights[i]), self.biases[i]))
+            # x = activation_func(tf.add(tf.matmul(x, self.weights[i]), self.biases[i]))
+            x = activation_func(tf.nn.xw_plus_b(x, self.weights[i], self.biases[i]))
 
         self.mean = tf.add(tf.matmul(x, self.weights[-1]), self.biases[-1])
 
@@ -95,6 +96,94 @@ class NoLearnedCovariance():
             optimizer = tf.train.AdadeltaOptimizer(learning_rate=self.lr)#,rho=1.0)
         else: raise NotImplementedError
         return optimizer
+
+
+class RMSEdropout():
+    def __init__(self, args, sizes, model_scope):
+        # total loss (no regulariation) , sum of log (iid. heteroscedastic errors)
+        def rmse_loss(mean_values, y):
+
+            y_diff = tf.subtract(y, mean_values)
+
+            tmp2 = tf.reduce_mean(tf.einsum('ni,ni->n',y_diff,y_diff))
+
+            return tmp2
+
+        # activation func
+        if args.activation=="logistic":
+            activation_func = tf.nn.sigmoid
+        elif args.activation=="relu":
+            activation_func = tf.nn.relu
+        elif args.activation=="tanh":
+            activation_func = tf.nn.tanh
+
+        # 32 and 64 bit support
+        dtype=args.dtype
+
+        target_size = sizes[-1]
+        o_mean = np.zeros(target_size)
+        o_std = 0.1*np.ones((target_size,target_size))
+
+        # x,y placeholders
+        self.input_data  = tf.placeholder(dtype, [None, sizes[0]])
+        self.target_data = tf.placeholder(dtype, [None, target_size])
+
+        with tf.variable_scope(model_scope+'learning_rate'):
+            self.lr = tf.Variable(args.learning_rate, trainable=False, name='learning_rate',dtype=dtype)
+
+        with tf.variable_scope(model_scope+'target_stats'):
+
+            self.output_mean = tf.Variable(o_mean, trainable=False, dtype=dtype,name="mean")
+            self.output_std = tf.Variable(o_std, trainable=False, dtype=dtype,name="std")
+        
+        self.dr = tf.placeholder(dtype)
+
+        self.weights = []
+        self.biases = []
+
+        with tf.variable_scope(model_scope+'MLP'):
+            for i in range(1, len(sizes)):
+                self.weights.append(tf.Variable(tf.random_normal([sizes[i-1], sizes[i]], stddev=0.1,dtype=dtype), \
+                        name='weights_'+str(i-1),dtype=dtype))
+                self.biases.append(tf.Variable(tf.random_normal([sizes[i]], stddev=0.1,dtype=dtype), \
+                        name='biases_'+str(i-1),dtype=dtype))
+
+        x = self.input_data
+        for i in range(0, len(sizes)-2):
+            x = activation_func(tf.nn.xw_plus_b(x, self.weights[i], self.biases[i]))
+            x = tf.nn.dropout(x, self.dr, noise_shape=[1, sizes[i+1]], name='dropout_layer'+str(i))
+
+        self.mean = tf.add(tf.matmul(x, self.weights[-1]), self.biases[-1])
+
+        #output transform mean
+        eye = tf.eye(num_rows=target_size,dtype=dtype)
+        self.mean = tf.add(tf.einsum('ni,ij,ij->nj',self.mean,self.output_std,eye),self.output_mean)
+
+        self.loss_value = rmse_loss(self.mean, self.target_data)
+
+        tvars = tf.trainable_variables()
+
+        self.gradients = tf.gradients(self.loss_value , tvars)
+
+        self.clipped_gradients, _ = tf.clip_by_global_norm(self.gradients, args.grad_clip)
+
+        self.optimizer = self.set_optimizer(args)
+
+
+        self.train_op = self.optimizer.apply_gradients(zip(self.clipped_gradients, tvars))
+
+    def set_optimizer(self,args):
+        if args.opt_method == "rmsprop":
+            optimizer = tf.train.RMSPropOptimizer(self.lr)
+        elif args.opt_method == "adam":
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.lr)
+        elif args.opt_method == "gradientdescent":
+            optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.lr)
+        elif args.opt_method == "adadelta":
+            optimizer = tf.train.AdadeltaOptimizer(learning_rate=self.lr)#,rho=1.0)
+        else: raise NotImplementedError
+        return optimizer
+
 
 
 class MLPGaussianRegressor():
