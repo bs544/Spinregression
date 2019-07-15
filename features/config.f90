@@ -12,6 +12,8 @@ module config
         real(8) :: cell(1:3,1:3)                            ! real space (A)
         real(8),allocatable :: local_positions(:,:)         ! fractional coordinates /(A)
         real(8),allocatable :: all_positions(:,:)           ! cartesian coordinates of relevant atom images (A)
+        real(8),allocatable :: weightings(:)                ! weightings of atoms
+        real(8),allocatable :: all_weightings(:)            ! weightings of all relevant atomm images
         integer :: nall                                     ! atoms in ultracell
     end type config_type
 
@@ -133,11 +135,15 @@ module config
             if(allocated(structure%all_positions)) deallocate(structure%all_positions)
             allocate(structure%all_positions(1:3,1:nall))
 
+            if(allocated(structure%all_weightings)) deallocate(structure%all_weightings)
+            allocate(structure%all_weightings(1:nall))
+
             do ii=1,ncells,1
                 do jj=1,natm,1
                     !* fractional coordinates
                     structure%all_positions(:,(ii-1)*natm+jj) = structure%local_positions(:,jj) +&
                     &neigh_images(:,ii)
+                    structure%all_weightings((ii-1)*natm+jj) = structure%weightings(jj)
                 end do
             end do
 
@@ -184,7 +190,27 @@ module config
             call config_type__wrap_atom_positions()
         end subroutine config_type__set_local_positions
 
-        subroutine config_type__generate_neighbouring_polar(gridpoint,polar)
+        subroutine config_type__set_atom_weights(weightings)
+            implicit none
+
+            !* args
+            real(8),intent(in) :: weightings(:)
+
+            !* scratch
+            integer :: dim(1)
+
+            if (allocated(structure%weightings)) then
+                deallocate(structure%weightings)
+            end if
+
+            dim = shape(weightings)
+
+            allocate(structure%weightings(dim(1)))
+            structure%weightings = weightings
+        
+        end subroutine config_type__set_atom_weights
+
+        subroutine config_type__generate_neighbouring_polar(gridpoint,polar,neigh_weights)
             !* Y_lm(theta,phi) = k_lm P_m(cos(theta)) * exp(i phi)
 
             !use, intrinsic :: ieee_arithmetic
@@ -194,15 +220,20 @@ module config
             !* args
             real(8),intent(in) :: gridpoint(1:3)
             real(8),allocatable,intent(inout) :: polar(:,:)
+            real(8),allocatable,intent(inout) :: neigh_weights(:)
 
             !* scratch
             real(8) :: rcut2,dr_vec(1:3)
             real(8) :: polar_buffer(1:3,1:structure%nall)
+            real(8) :: weights_buffer(1:structure%nall)
             integer :: ii,cntr
 
             if(allocated(polar)) then
                 deallocate(polar)
             end if
+
+            weights_buffer = 0.0d0
+
             if(.not.allocated(structure%all_positions)) then
                 call error_message("config_type__generate_neighbouring_polar","attribute all_positions not allocated")
             end if
@@ -215,6 +246,7 @@ module config
 
                 if (sum(dr_vec**2).le.rcut2) then
                     cntr = cntr + 1
+                    weights_buffer(cntr) = structure%all_weightings(ii)
                     call cartesian_to_polar_array(dr_vec,cntr,polar_buffer)
                     !polar_buffer(1,cntr) = dnrm2(3,dr_vec,1)
                     !polar_buffer(2,cntr) = dr_vec(3) / polar_buffer(1,cntr)
@@ -231,8 +263,14 @@ module config
             end do
 
             if (cntr.gt.0) then
+                if(allocated(neigh_weights)) then
+                    deallocate(neigh_weights)
+                end if
+                allocate(neigh_weights(1:cntr))
                 allocate(polar(3,cntr))
+                neigh_weights = 1.0d0
                 polar(:,:) = polar_buffer(:,1:cntr)
+                neigh_weights(1:cntr) = weights_buffer(1:cntr)
             end if
         end subroutine config_type__generate_neighbouring_polar
 
@@ -257,19 +295,21 @@ module config
             end if
         end subroutine cartesian_to_polar_array
 
-        subroutine config_type__get_global_polar(polar)
+        subroutine config_type__get_global_polar(polar,neigh_weights)
             ! get all polar coordinates for global features, involves
             ! sum_{local_atoms} sum_{neighbours to local atom}
             implicit none
 
             !* args
             real(8),intent(inout),allocatable :: polar(:,:)
+            real(8),intent(inout),allocatable :: neigh_weights(:)
 
             !* scratch
             real(8),allocatable :: local_cartesians(:,:)
             integer :: dim(1:2),natm,cntr,ii,jj
             real(8) :: rcut2,dr2,amin,dr_vec(1:3),drii(1:3)
             real(8),allocatable :: scratch_polar(:,:)
+            real(8),allocatable :: scratch_weights(:)
 
             !* [3,natm]
             dim = shape(structure%local_positions)
@@ -282,6 +322,7 @@ module config
 
             !* max possible number of interactions
             allocate(scratch_polar(1:3,1:natm*(structure%nall-1)))
+            allocate(scratch_weights(1:natm*(structure%nall-1)))
 
 
             !* max distance
@@ -303,6 +344,7 @@ module config
                     if ((dr2.le.rcut2).and.(dr2.gt.amin)) then
                         !* valid local interaction
                         cntr = cntr + 1
+                        scratch_weights(cntr) = structure%all_weightings(jj)
 
                         !* cartesians to polar
                         call cartesian_to_polar_array(dr_vec,cntr,scratch_polar)
@@ -314,8 +356,13 @@ module config
                 if (allocated(polar)) then
                     deallocate(polar)
                 end if
+                if (allocated(neigh_weights)) then
+                    deallocate(neigh_weights)
+                end if
                 allocate(polar(3,cntr))
+                allocate(neigh_weights(cntr))
                 polar(:,:) = scratch_polar(:,1:cntr)
+                neigh_weights(:) = scratch_weights(1:cntr)
             end if
         end subroutine config_type__get_global_polar
 

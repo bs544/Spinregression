@@ -15,28 +15,38 @@ def fp_length(nmax,lmax,form):
     num_features = f90_num_features(lmax=lmax,nmax=nmax,calc_type=c_type)
     return num_features
 
-def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form="powerspectrum",global_form="powerspectrum",gnmax=None,glmax=None,grcut=None):
+def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form="powerspectrum",global_form="powerspectrum",gnmax=None,glmax=None,grcut=None,weighting=None):
     """
     For each density grid point in xyz, calculate local power/bi-spectrum
     features. Compute the global crystal representation using power/bi-spectrum
     features once and concacentate this to all grid points
     """
 
+    if (weighting is None):
+        weighting = np.ones(atom_pos_uvw.shape[0],dtype=np.float64,order='F')
+    elif (not isinstance(weighting,np.ndarray)):
+        assert (isinstance(weighting,list)), "Haven't implemented a conversion from type {} to array yet".format(type(weighting))
+        assert (len(weighting)==atom_pos_uvw.shape[0]), "weighting is the incorrect length. Length: {}, Required Length {}".format(len(weighting),atom_pos_uvw.shape[0])
+        weighting = np.array(weighting,dtype=np.float64,order='F')
+    else:
+        weighting = weighting.astype(np.float64).order('F')
+    
+
     localX = local_features(cell=cell,atom_pos_uvw=atom_pos_uvw,xyz=xyz,nmax=nmax,lmax=lmax,\
-        parallel=parallel,form=local_form)
+        weighting=weighting,parallel=parallel,form=local_form)
 
     if global_form is not None:
         gnmax = nmax if (gnmax is None) else gnmax
         glmax = lmax if (glmax is None) else glmax
         grcut = 6.0 if (grcut is None) else grcut
-        globalX = global_features(cell=cell,atom_pos_uvw=atom_pos_uvw,nmax=gnmax,lmax=glmax,rcut=grcut,form=global_form)
+        globalX = global_features(cell=cell,atom_pos_uvw=atom_pos_uvw,nmax=gnmax,lmax=glmax,weighting=weighting,rcut=grcut,form=global_form)
         X = np.hstack(( localX , np.tile(globalX,(localX.shape[0],1)) ))
     else:
         X = localX
 
     return X
 
-def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="powerspectrum",buffersize=1000):
+def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,weighting,rcut=6.0,parallel=True,form="powerspectrum",buffersize=1000):
     """
     Return the bispectrum features for a seris of grid points in real space.
     These points are embedded in an infinite periodic crystal defined by
@@ -83,13 +93,13 @@ def local_features(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,form="
     X = np.zeros((num_features,xyz.shape[0]),dtype=np.float64,order='F')
 
     f90_calculate_local(cell=format_py_to_f90(cell),atom_positions=format_py_to_f90(atom_pos_uvw),\
-            grid_coordinates=format_py_to_f90(xyz),rcut=rcut,parallel=parallel,lmax=lmax,nmax=nmax,calc_type=c_type,\
+            grid_coordinates=format_py_to_f90(xyz),weightings=weighting,rcut=rcut,parallel=parallel,lmax=lmax,nmax=nmax,calc_type=c_type,\
             buffer_size=int(buffersize),x=X)
 
     return np.asarray(X.T,order='C')
 
 
-def global_features(cell,atom_pos_uvw,nmax,lmax,rcut=6.0,form="powerspectrum",buffersize=1000):
+def global_features(cell,atom_pos_uvw,nmax,lmax,weighting,rcut=6.0,form="powerspectrum",buffersize=1000):
     """
     Return the global power/bi-spectrum vector for a crystal using tapered
     local approximations for the radial bases
@@ -103,7 +113,7 @@ def global_features(cell,atom_pos_uvw,nmax,lmax,rcut=6.0,form="powerspectrum",bu
     X = np.zeros(num_features,dtype=np.float64,order='F')
 
     f90_calculate_global(cell=format_py_to_f90(cell),atom_positions=format_py_to_f90(atom_pos_uvw),\
-            rcut=rcut,lmax=lmax,nmax=nmax,calc_type=c_type,buffer_size=int(buffersize),x=X)
+            weightings=weighting,rcut=rcut,lmax=lmax,nmax=nmax,calc_type=c_type,buffer_size=int(buffersize),x=X)
 
     return np.asarray(X,order='F')
 

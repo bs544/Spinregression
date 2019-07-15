@@ -331,7 +331,7 @@ class castep_data():
                 if (name not in filenames['init_dennames'] ):
                     self.include_init = False
             elif(self.verbose):
-                print("{}.castep doesn't have a complete set of files, rejecting this file")
+                print("{}.castep doesn't have a complete set of files, rejecting this file".format(name))
         
         if (len(names)>0):
             Good_read = True
@@ -457,7 +457,7 @@ class castep_data():
 
         data = {}
 
-        default_fpargs = {'nmax':4,'lmax':4,'local_fptype':'axial-bispectrum','global_fptype':'powerspectrum','gnmax':None,'glmax':None,'grcut':None}
+        default_fpargs = {'nmax':4,'lmax':4,'local_fptype':'axial-bispectrum','global_fptype':'powerspectrum','gnmax':None,'glmax':None,'grcut':None,'weighting':None}
 
         allowed_sampling_methods = ['value_weighted','split','proximity']
         default_sampargs = {'value_weighted':{'weighting':'linear'},\
@@ -484,7 +484,6 @@ class castep_data():
                 for key in sampling_dict.keys():
                     if key in sampargs.keys():
                         sampling_dict[key] = sampargs[key]
-                
 
 
         if (cells is None):
@@ -504,12 +503,15 @@ class castep_data():
         fp = []
         edensity = []
         init_edensity = []
-        
+        cell_idx = []
+
         if (self.nspins>0):
             sdensity = []
             init_sdensity = []
         
         start = time.time()
+
+        cntr = 0
                 
         for i in cells:
 
@@ -518,6 +520,7 @@ class castep_data():
 
             xyz_ = self.data[i]['xyz']
             edensity.append(self.data[i]['edensity'])
+            
 
             if (sampargs is not None):
                 if (sampargs['method'] == 'proximity'):
@@ -528,14 +531,17 @@ class castep_data():
                 samp_idx = [i for i in range(len(xyz_))]
 
             xyz_ = xyz_[samp_idx,:]
-            edensity[i] = edensity[i][samp_idx]
+            cell_idx.append(np.ones(len(xyz_))*i)
+            edensity[cntr] = edensity[cntr][samp_idx]
+            cntr += 1
 
             xyz.append(xyz_)
             
             if (self.include_init):
                 init_edensity.append(self.data[i]['init_edensity'][samp_idx])
             
-            fp_ = calculate(cell,positions,xyz_,fpargs['nmax'],fpargs['lmax'],rcut=fpargs['rcut'],local_form=fpargs['local_fptype'],global_form=fpargs['global_fptype'])
+            fp_ = calculate(cell,positions,xyz_,fpargs['nmax'],fpargs['lmax'],rcut=fpargs['rcut'],local_form=fpargs['local_fptype'],\
+                global_form=fpargs['global_fptype'],glmax=fpargs['glmax'],gnmax=fpargs['gnmax'],grcut=fpargs['grcut'],weighting=fpargs['weighting'])
             fp.append(fp_)
 
             if (self.nspins>0):
@@ -549,6 +555,7 @@ class castep_data():
         
         fp = np.concatenate(fp,axis=0)
         xyz = np.concatenate(xyz,axis=0)
+        cell_idx = np.concatenate(cell_idx,axis=0)
         edensity = np.concatenate(edensity,axis=0)
         if (self.include_init):
             init_edensity = np.asarray(init_edensity)
@@ -572,6 +579,7 @@ class castep_data():
         data['xyz'] = xyz
         data['fp'] = fp
         data['edensity'] = edensity
+        data['cell_idx'] = cell_idx
         if (self.include_init):
             init_edensity = init_edensity.reshape(num_gridpoints,1)
             data['init_edensity'] = init_edensity

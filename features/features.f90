@@ -67,7 +67,7 @@ module features
             check_cardinality = res
         end function check_cardinality
 
-        subroutine calculate_local(cell,atom_positions,grid_coordinates,rcut,parallel,&
+        subroutine calculate_local(cell,atom_positions,grid_coordinates,rcut,weightings,parallel,&
         &lmax,nmax,calc_type,buffer_size,X)
             ! Compute bispectrum features as in [1]
             !
@@ -78,6 +78,7 @@ module features
             ! cell             : shape=(3,3),     units=cartesians
             ! atom_positions   : shape=(3,Natm),  units=fractional coordinates
             ! grid_coordinates : shape=(3,Ngrid), units=cartesians
+            ! weighting        : shape=(Natm),    no units
             !
             ! Note
             ! ----
@@ -93,13 +94,14 @@ module features
             real(8),intent(in) :: cell(1:3,1:3),atom_positions(:,:)
             real(8),intent(in) :: grid_coordinates(:,:),rcut
             logical,intent(in) :: parallel
+            real(8),intent(in) :: weightings(:)
             integer,intent(in) :: lmax,nmax,calc_type,buffer_size
             real(8),intent(inout) :: X(:,:)
 
 
             !* scratch
             integer :: dim(1:2),natm,ngrid,ii,loop(1:2)
-            real(8),allocatable :: neigh_images(:,:),polar(:,:)
+            real(8),allocatable :: neigh_images(:,:),polar(:,:),neigh_weights(:)
 
             !* openmp
             integer :: thread_idx,num_threads
@@ -139,6 +141,7 @@ module features
             !* initialise shared config info
             call config_type__set_cell(cell)
             call config_type__set_local_positions(atom_positions)
+            call config_type__set_atom_weights(weightings)
 
             !* cartesians of all relevant atom images
 
@@ -157,20 +160,20 @@ module features
 
                 do ii=loop(1),loop(2),1
                     !* generate [[r,theta,phi] for atom neighbouring frid point ii]
-                    call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar)
+                    call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar,neigh_weights)
 
                     if(.not.allocated(polar)) then
                         !* no atoms within local approximation
                         X(:,ii) = 0.0d0
                     else
                         !* get type1 features
-                        call features_bispectrum_type1(polar,X(:,ii))
+                        call features_bispectrum_type1(polar,X(:,ii),neigh_weights)
                     end if
                 end do
             else
                 !$omp parallel num_threads(omp_get_max_threads()),&
                 !$omp& default(shared),&
-                !$omp& private(thread_idx,polar,ii,loop,num_threads),&
+                !$omp& private(thread_idx,polar,ii,loop,num_threads,neigh_weights),&
                 !$omp& copyin(buffer_cnlm)
 
                 !* [0,num_threads-1]
@@ -183,13 +186,13 @@ module features
 
                 do ii=loop(1),loop(2),1
                     !* generate [[r,theta,phi] for atom neighbouring frid point ii]
-                    call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar)
+                    call config_type__generate_neighbouring_polar(grid_coordinates(:,ii),polar,neigh_weights)
 
                     if(.not.allocated(polar)) then
                         !* no atoms within local approximation
                         X(:,ii) = 0.0d0
                     else
-                        call features_bispectrum_type1(polar,X(:,ii))
+                        call features_bispectrum_type1(polar,X(:,ii),neigh_weights)
                     end if
                 end do
 
@@ -197,7 +200,7 @@ module features
             end if
         end subroutine calculate_local
 
-        subroutine calculate_global(cell,atom_positions,rcut,lmax,nmax,&
+        subroutine calculate_global(cell,atom_positions,weightings,rcut,lmax,nmax,&
         &calc_type,buffer_size,X)
             ! Compute global features as
             ! cnlm = \sum_i \sum_neighbours_j gn(drij)Y_ml()
@@ -205,13 +208,13 @@ module features
 
             implicit none
 
-            real(8),intent(in) :: atom_positions(:,:),rcut,cell(1:3,1:3)
+            real(8),intent(in) :: atom_positions(:,:),rcut,cell(1:3,1:3), weightings(:)
             integer,intent(in) :: lmax,nmax,calc_type,buffer_size
             real(8),intent(inout) :: X(:)
 
             !* scratch
             integer :: dim_2(1:2),dim_1(1:1),natm
-            real(8),allocatable :: polar(:,:),neigh_images(:,:)
+            real(8),allocatable :: polar(:,:),neigh_images(:,:),neigh_weights(:)
 
             !* cnlm normalized by 1/natm
             global_features = .true.
@@ -238,6 +241,7 @@ module features
             !* set local cell info
             call config_type__set_cell(cell)
             call config_type__set_local_positions(atom_positions)
+            call config_type__set_atom_weights(weightings)
 
             !* fetch relevant images
             call find_neighbouring_images(neigh_images,buffer_size)
@@ -249,15 +253,15 @@ module features
             call init_buffer_all_general()
 
             !* get polar coordinates of all interactions
-            call config_type__get_global_polar(polar)
+            call config_type__get_global_polar(polar,neigh_weights)
 
             !* compute global features
-            call features_bispectrum_type1(polar,X)
+            call features_bispectrum_type1(polar,X,neigh_weights)
         end subroutine calculate_global
 
 
 
-        subroutine features_bispectrum_type1_deprecated(polar,x)
+        subroutine features_bispectrum_type1_deprecated(polar,x,neigh_weights)
             ! concacenation order:
             !
             ! for l in [0,lmax]:
@@ -265,7 +269,7 @@ module features
             implicit none
 
             !* args
-            real(8),intent(in) :: polar(:,:)
+            real(8),intent(in) :: polar(:,:), neigh_weights(:)
             real(8),intent(inout) :: x(:)
 
             !* scratch
@@ -280,7 +284,7 @@ module features
             Nneigh = dim(2)
 
             !* redundancy arrays specific to grid point
-            call init_buffer_all_polar(polar)
+            call init_buffer_all_polar(polar,neigh_weights)
 
             cntr = 1
             do ll=0,bispect_param%lmax,1
@@ -319,7 +323,7 @@ module features
         end subroutine features_bispectrum_type1_deprecated
 
 
-        subroutine features_bispectrum_type1(polar,x)
+        subroutine features_bispectrum_type1(polar,x,neigh_weights)
             ! concacenation order:
             !
             ! for l in [0,lmax]:
@@ -331,6 +335,7 @@ module features
             !* args ! CHANGE INOUT TO IN
             real(8),intent(inout) :: polar(:,:)
             real(8),intent(inout) :: x(:)
+            real(8),intent(inout) :: neigh_weights(:)
 
             !* scratch
             integer :: cntr,lmax,num_l_triplets,dim(1:2)
@@ -340,7 +345,7 @@ module features
             complex(8) :: buffer(1:2),res_cmplx
 
             !* redundancy arrays specific to grid point
-            call init_buffer_all_polar(polar)
+            call init_buffer_all_polar(polar,neigh_weights)
 
             lmax = bispect_param%lmax
 
@@ -739,12 +744,13 @@ module features
             end if
         end subroutine init_buffer_polar_sc
 
-        subroutine init_buffer_all_polar(polar)
+        subroutine init_buffer_all_polar(polar,neigh_weights)
             ! initialise and compute all redundancy arrays for info specific
             ! to a particular density grid point
             implicit none
 
             real(8),intent(in) :: polar(:,:)
+            real(8),intent(in) :: neigh_weights(:)
 
             !* associated legendre polynomials of polar angle - NO LONGER NECESSARY
             !call init_buffer_spherical_p(polar)
@@ -759,7 +765,7 @@ module features
             call init_radial_g(polar)
 
             !* compute cnlm
-            call calc_cnlm()
+            call calc_cnlm(neigh_weights)
         end subroutine init_buffer_all_polar
 
         real(8) function spherical_harm_const__sub1(mm,ll)
@@ -882,9 +888,10 @@ module features
             ddot_wrapper = res2
         end function ddot_wrapper
 
-        subroutine calc_cnlm()
+        subroutine calc_cnlm(neigh_weights)
             ! compute cnlm for given density point
             implicit none
+            real(8),intent(in) :: neigh_weights(:)
             real(8) :: invn
             integer :: lmax,mm,ll,nn,dim(1:3),ii,natm
             integer :: dim_2(1:2)
@@ -895,6 +902,8 @@ module features
             dim = shape(buffer_spherical_harm)
             natm = dim(1)
 
+            !write (*,*) natm
+
             buffer_cnlm = 0.0d0
             do nn=1,bispect_param%nmax
                 do ll=0,lmax
@@ -902,7 +911,7 @@ module features
                         res = complex(0.0d0,0.0d0)
                         do ii=1,natm
                             ! IF SPLIT REAL AND IMAG PARTS INTO SEPARATE ARRAYS, COULD USE DDOT WRAPPER HERE
-                            tmp = buffer_spherical_harm(ii,mm,ll)*buffer_radial_g(ii,nn)
+                            tmp = neigh_weights(ii)*buffer_spherical_harm(ii,mm,ll)*buffer_radial_g(ii,nn)
 
                             res = res + tmp
                         end do
@@ -917,7 +926,7 @@ module features
 
             if (global_features) then
 ! debug
-write(*,*) natm
+!write(*,*) natm
 ! debug
 
                 dim_2 = shape(structure%local_positions)
