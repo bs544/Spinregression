@@ -512,6 +512,8 @@ class castep_data():
                 for key in sampling_dict.keys():
                     if key in sampargs.keys():
                         sampling_dict[key] = sampargs[key]
+        else:
+            sampargs = {'method':None}
 
 
         if (cells is None):
@@ -554,7 +556,7 @@ class castep_data():
             edensity.append(self.data[i]['edensity'])
             
 
-            if (sampargs is not None):
+            if (sampargs['method'] is not None):
                 if (sampargs['method'] == 'proximity'):
                     samp_idx = get_points_near_atoms(xyz_,positions,cell,sampling_dict['cutoff'])
                 elif (sampargs['method'] in ['value_weighted','split']):
