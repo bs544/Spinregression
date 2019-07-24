@@ -18,7 +18,7 @@ def parity_plot(net,x,y,title_input):
     plt.show()
     plt.close()
 
-def rmse_plot(net):
+def rmse_plot(net,log_y=False):
     """
     For a trained network, plots the rmse for the training and validation set over the course of a training run
     """
@@ -34,8 +34,12 @@ def rmse_plot(net):
     legend = []
     for i in range(rmse.shape[0]):
         print(min(rmse_val[i,:]))
-        plt.plot(x,rmse[i,:])
-        plt.plot(x_val,rmse_val[i,:])
+        if (log_y):
+            plt.semilogy(x,rmse[i,:])
+            plt.semilogy(x_val,rmse_val[i,:])
+        else:
+            plt.plot(x,rmse[i,:])
+            plt.plot(x_val,rmse_val[i,:])
         legend.append('Net {} Train'.format(i+1))
         legend.append('Net {} Val'.format(i+1))
     plt.legend(legend)

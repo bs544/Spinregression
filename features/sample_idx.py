@@ -307,7 +307,6 @@ def get_dist(xyz,at_pos,cell):
 
     return min_dist
     
-
 def get_points_near_atoms(xyz,at_posns,cell,max_dist):
     """
     Parameters:
@@ -337,7 +336,37 @@ def get_points_near_atoms(xyz,at_posns,cell,max_dist):
         allowedlist = allowedlist + list(diff)
     
     return allowedlist
+
+def get_points_on_atoms(xyz,at_posns,cell,average=False):
+    """
+    Parameters:
+        xyz: (array) shape (N,3). contains the positions of the grid points in Angstroms
+        at_posns: (array) shape (n,3). contains the positions of the atoms in Angstroms
+        cell: (array) shape (3,3). cell vectors in Angstroms
+    Returns:
+        atom_idx: (list) contains the indices of the points closest to each atom, 
+                in the order the atoms appear.
+                if average is True, then a list of lists is returned, one list for each atom
+                the lists contain the indices of the eight closest grid points to the atom, 
+                which hopefully describe a cube around the atom point. 
+                The average of this can then be taken outside the function so that an average density is assigned to each atom
+    """
+
     
+
+    #generate allowed spheres for each atom
+    atom_idx = []
+    
+    for i in range(at_posns.shape[0]):
+        at_pos = at_posns[i,:]
+        dists = get_dist(xyz,at_pos,cell)
+        if (average):
+            idx = list(np.argpartition(dists,8)[:8])
+        else:
+            idx = np.argmin(dists)
+        atom_idx.append(idx)
+    
+    return atom_idx
     
 
 
