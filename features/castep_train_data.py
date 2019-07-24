@@ -17,7 +17,7 @@ class castep_data():
         and outputs a list of dictionaries, one for each cell in self.data, each dictionaly contains:
             ['cell']: cell vectors
             ['elements']: atomic species identifiers
-            ['positions']: cartesian (or is it fractional?) atomic coordinates
+            ['positions']: cartesian atomic coordinates
             ['xyz']: cartesian coordinates of each point of the grid on which density is specified
             ['edensity']: total electron density (spin up + spin down) on a grid
             ['init_edensity']: initial electron density
@@ -41,7 +41,7 @@ class castep_data():
         self.verbose = verbose
         self.include_init = None
 
-        self.keys = ["edensity","xyz","cell","elements","positions","forces"]
+        self.keys = ["edensity","xyz","cell","elements","positions","forces","mulliken_spins"]
 
         self.init_keys = ['init_edensity']
 
@@ -341,6 +341,27 @@ class castep_data():
                 print("Didn't successfully get any names")
         return names, Good_read
 
+    def get_spins_from_castep(self,name,natoms):
+        """
+        Parameters:
+            file: (str) name of the .castep file to examine
+            natoms: (int) number of atoms, this has to be the same as the length of the array
+        Returns:
+            data: (array) shape (N,) Mulliken Analysis of spin contribution from each atom in units of hbar/2
+        """
+        filename = '{}{}'.format(self.path,name)
+        assert (filename[-7:]==".castep"), "Incorrect file type submitted to get_spins_from_castep, needs to be .castep, not {}".format(filename[-7:])
+
+        with open(filename,'r') as f:
+            lines = f.readlines()
+        data = []
+        for line in lines:
+            if ('  Fe              ' in line):
+                data.append(float(line.split()[-1]))
+        data = np.asarray(data)
+        assert (len(data)==natoms), "data isn't the right size"
+        return data
+
     def save(self,save_dict,filename):
         """
         Saves an individual dictionary, save_dict, in self.savedir
@@ -391,6 +412,8 @@ class castep_data():
         for i,name in enumerate(names):
             if (self.datalist is None or i in self.datalist):
                 celldict = self.get_atoms('{}{}'.format(name,'.castep'))
+                mulliken = self.get_spins_from_castep('{}{}'.format(name,'.castep'),celldict['positions'].shape[0])
+                celldict['mulliken_spins'] = mulliken
                 fin_dendict = self.get_densities('{}{}'.format(name,'.den_fmt'))
                 if (self.include_init):
                     init_dendict = self.get_densities('{}{}{}'.format(name,'_initial','.den_fmt'))
@@ -426,7 +449,7 @@ class castep_data():
                         local_fptype, global_fptype, nmax, lmax, rcut, gnmax, glmax, grcut (g for global, if that wasn't clear)
                     If None, then default values are used
             sampargs: (dict) arguments for sampling from data. Expected to contain some of:
-                    sampling_type and depending on sampling type: weighting, high_fraction, low_fraction, threshold, cutoff
+                    sampling_type and depending on sampling type: weighting, high_fraction, low_fraction, threshold, cutoff, mulliken
                     If None, then no sampling is done
 
         This assumes that you have already loaded the data and that it is stored in self.data
@@ -441,9 +464,12 @@ class castep_data():
             
         and if self.nspins>0:
             ['sdensity']
+            ['mulliken_spins']
 
             if _initial.den_fmt files are included, it also contains:
                 ['init_sdensity']
+        
+        if sampargs has the method 'mulliken', then one spin per atom is returned as the mulliken analysis of the 
 
         where ['fp'] is the fingerprint of atomic environments
         fptype, nmax, lmax and rcut are all values for the fingerprint
@@ -452,17 +478,19 @@ class castep_data():
 
         #fingerprints section almost exclusively the work of Andrew Fowler, only exception is the axial bispectrum
         from features.bispectrum import calculate
-        from features.sample_idx import get_points_near_atoms, get_sampled_idx
+        from features.sample_idx import get_points_near_atoms, get_sampled_idx, get_points_on_atoms
         import time
 
         data = {}
 
         default_fpargs = {'nmax':4,'lmax':4,'local_fptype':'axial-bispectrum','global_fptype':'powerspectrum','gnmax':None,'glmax':None,'grcut':None,'weighting':None}
 
-        allowed_sampling_methods = ['value_weighted','split','proximity']
+        allowed_sampling_methods = ['value_weighted','split','proximity','closest_point','mulliken']
         default_sampargs = {'value_weighted':{'weighting':'linear'},\
             'split':{'high_fraction':0.95,'low_fraction':None,'train_ratio':0.75,'threshold':None},\
-            'proximity':{'cutoff':0.5}}
+            'proximity':{'cutoff':0.5},\
+            'closest_point':{'displacement':np.array([0.0,0.0,0.00001]),'average':False},\
+            'mulliken':{'displacement':np.array([0.0,0.0,0.00001]),'average':False}}#mulliken is pretty much the same as closest_point, except that the spins come from the mulliken spin analysis displayed in the .castep files
         if (fpargs is None):
             fpargs = default_fpargs
         else:
@@ -518,6 +546,10 @@ class castep_data():
             cell = self.data[i]['cell']
             positions = self.data[i]['positions']
 
+            #fingerprint calculator takes in fractional coordinates
+            inv = np.linalg.inv(cell)
+            frac_positions = np.einsum('ij,nj->ni',inv,positions)
+
             xyz_ = self.data[i]['xyz']
             edensity.append(self.data[i]['edensity'])
             
@@ -526,28 +558,64 @@ class castep_data():
                 if (sampargs['method'] == 'proximity'):
                     samp_idx = get_points_near_atoms(xyz_,positions,cell,sampling_dict['cutoff'])
                 elif (sampargs['method'] in ['value_weighted','split']):
-                    samp_idx = get_sampled_idx(edensity,sampargs['method'],sampling_dict)
+                    samp_idx = get_sampled_idx(edensity[i],sampargs['method'],sampling_dict)
+                elif (sampargs['method'] in ['closest_point','mulliken']):
+                    samp_idx = get_points_on_atoms(xyz_,positions,cell,sampling_dict['average'])
+                    grid_pos = np.zeros((positions.shape))
+                    for j in range(len(samp_idx)):
+                        grid_pos[j,:] = positions[j,:] + sampling_dict['displacement']
+                    xyz_ = grid_pos
             else:
-                samp_idx = [i for i in range(len(xyz_))]
-
-            xyz_ = xyz_[samp_idx,:]
+                samp_idx = [j for j in range(len(xyz_))]
+            
+            if (sampargs['method'] not in ['closest_point','mulliken']):
+                xyz_ = xyz_[samp_idx,:]
+                edensity[cntr] = edensity[cntr][samp_idx]
+            elif (not sampling_dict['average']):
+                edensity[cntr] = edensity[cntr][samp_idx]
+            else:
+                tmp_arr = np.zeros(len(samp_idx))
+                for j in range(len(samp_idx)):
+                    tmp_arr[j] = np.mean(edensity[cntr][samp_idx[j]])
+                edensity[cntr] = tmp_arr
             cell_idx.append(np.ones(len(xyz_))*i)
-            edensity[cntr] = edensity[cntr][samp_idx]
             cntr += 1
 
             xyz.append(xyz_)
             
             if (self.include_init):
-                init_edensity.append(self.data[i]['init_edensity'][samp_idx])
+                if (sampargs['method'] not in ['closest_point','mulliken'] or not sampling_dict['average']):
+                    init_edensity.append(self.data[i]['init_edensity'][samp_idx])
+                else:
+                    tmp_arr = np.zeros(len(samp_idx))
+                    for j,atom_idx in enumerate(samp_idx):
+                        tmp_arr[j] = np.mean(self.data[i]['init_edensity'][atom_idx])
+                    init_edensity.append(tmp_arr)
+
             
-            fp_ = calculate(cell,positions,xyz_,fpargs['nmax'],fpargs['lmax'],rcut=fpargs['rcut'],local_form=fpargs['local_fptype'],\
+            fp_ = calculate(cell,frac_positions,xyz_,fpargs['nmax'],fpargs['lmax'],rcut=fpargs['rcut'],local_form=fpargs['local_fptype'],\
                 global_form=fpargs['global_fptype'],glmax=fpargs['glmax'],gnmax=fpargs['gnmax'],grcut=fpargs['grcut'],weighting=fpargs['weighting'])
             fp.append(fp_)
 
             if (self.nspins>0):
-                sdensity.append(self.data[i]['sdensity'][samp_idx])
+                if (sampargs['method'] not in ['closest_point'] or not sampling_dict['average']):
+                    if (sampargs['method'] == 'mulliken'):
+                        sdensity.append(self.data[i]['mulliken_spins'])
+                    else:
+                        sdensity.append(self.data[i]['sdensity'][samp_idx])
+                else:
+                    tmp_arr = np.zeros(len(samp_idx))
+                    for j,atom_idx in enumerate(samp_idx):
+                        tmp_arr[j] = np.mean(self.data[i]['sdensity'][atom_idx])
+                    sdensity.append(tmp_arr)
                 if (self.include_init):
-                    init_sdensity.append(self.data[i]['init_sdensity'][samp_idx])
+                    if (sampargs['method'] not in ['closest_point','mulliken'] or not sampling_dict['average']):
+                        init_sdensity.append(self.data[i]['init_sdensity'][samp_idx])
+                    else:
+                        tmp_arr = np.zeros(len(samp_idx))
+                        for j,atom_idx in enumerate(samp_idx):
+                            tmp_arr[j] = np.mean(self.data[i]['init_sdensity'][atom_idx])
+                        init_sdensity.append(tmp_arr)
 
         
         if (self.verbose):
@@ -566,7 +634,7 @@ class castep_data():
                 init_sdensity = np.concatenate(init_sdensity,axis=0)
 
         #num_gridpoints = fp.shape[0]*fp.shape[1]
-        num_gridpoints = fp.shape[0]
+        num_gridpoints = xyz.shape[0]
         #the following reshape should preserve the order of the indices further to the right
         #so the data extracted could be divided up into separate cells again.
         #hopefully using the same np.contatenate on all of these will do the same thing
