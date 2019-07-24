@@ -31,18 +31,24 @@ def calculate(cell,atom_pos_uvw,xyz,nmax,lmax,rcut=6.0,parallel=True,local_form=
     else:
         weighting = weighting.astype(np.float64).order('F')
     
+    assert (local_form is not None or global_form is not None), "No fingerprint type selected"
 
-    localX = local_features(cell=cell,atom_pos_uvw=atom_pos_uvw,xyz=xyz,nmax=nmax,lmax=lmax,\
-        weighting=weighting,parallel=parallel,form=local_form)
+    if local_form is not None:
+        localX = local_features(cell=cell,atom_pos_uvw=atom_pos_uvw,xyz=xyz,nmax=nmax,lmax=lmax,rcut=rcut,\
+            weighting=weighting,parallel=parallel,form=local_form)
 
     if global_form is not None:
         gnmax = nmax if (gnmax is None) else gnmax
         glmax = lmax if (glmax is None) else glmax
         grcut = 6.0 if (grcut is None) else grcut
         globalX = global_features(cell=cell,atom_pos_uvw=atom_pos_uvw,nmax=gnmax,lmax=glmax,weighting=weighting,rcut=grcut,form=global_form)
-        X = np.hstack(( localX , np.tile(globalX,(localX.shape[0],1)) ))
-    else:
+        # X = np.hstack(( localX , np.tile(globalX,(localX.shape[0],1)) ))
+    if global_form is None:
         X = localX
+    elif local_form is None:
+        X = np.tile(globalX,(xyz.shape[0],1))
+    else:
+        X = np.hstack(( localX , np.tile(globalX,(localX.shape[0],1)) ))
 
     return X
 
