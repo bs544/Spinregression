@@ -2,7 +2,12 @@ import numpy as np
 from features.regressor import regressor
 import matplotlib.pyplot as plt
 
-def parity_plot(net,x,y,title_input):
+def get_rmse(net,x,y):
+    y_pred, _ = net.predict(x)
+    rmse = np.sqrt(np.sum(np.square(y-y_pred)))
+    return rmse
+
+def parity_plot(net,x,y,title_input,print_RMSE=True):
     """
     Given a network and some test data (here it's x and y), plot predicted versus accurate spin density 
     """
@@ -17,6 +22,9 @@ def parity_plot(net,x,y,title_input):
     plt.title('Spin Density Parity Plot for {} Data'.format(title_input))
     plt.show()
     plt.close()
+
+    if (print_RMSE):
+        print(get_rmse(net,x,y))
 
 def rmse_plot(net,log_y=False):
     """
