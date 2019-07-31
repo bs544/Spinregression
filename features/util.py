@@ -124,6 +124,30 @@ class format_data():
         self.batch_size = batch_size
         Ntrain = self.ys.shape[0]
         self.batch = int(Ntrain*self.batch_size)
+    
+    def set_target_std(self,target_std):
+        """
+        set the target_std value
+        """
+        try:
+            assert (target_std is not None), "Can't set None type to be the target_std"
+        except AssertionError as error:
+            print(error)
+            return
+        self.target_std = target_std
+        return
+
+    def set_target_mean(self,target_mean):
+        """
+        set the target_mean value
+        """
+        try:
+            assert (target_mean is not None), "Can't set None type to be the target_mean"
+        except AssertionError as error:
+            print(error)
+            return
+        self.target_mean = target_mean
+        return
 
 
     def get_xs_standardized(self,xs):

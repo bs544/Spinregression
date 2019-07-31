@@ -23,7 +23,7 @@ with warnings.catch_warnings():
 
 class regressor():
     def __init__(self,method="nonbayes",layers=[10,10],Nensemble=5,maxiter=5e3,activation="logistic",\
-    batch_size=1.0,dtype=tf.float64,method_args={},load=None,val_frac=0.05):
+    batch_size=1.0,dtype=tf.float64,method_args={},load=None,val_frac=0.05,verbose=True):
         """
         Interface to regression using heuristic ensembles. Uncertainties are made by an ensemble of nets
 
@@ -44,6 +44,7 @@ class regressor():
             self.set_batch_size(batch_size)
             self.set_dtype(dtype)
             self.val_frac=val_frac
+            self.verbose=verbose
         else:
             self.load(load)
 
@@ -79,9 +80,9 @@ class regressor():
         set method specific arguments
         gradient clipping caps the value of the gradient used by the optimiser to avoid gradient explosion
         """
-        default_values = {"nonbayes":{"learning_rate":5e-3,"decay_rate":0.99,"grad_clip":100.0,"learn_inverse":True},\
+        default_values = {"nonbayes":{"learning_rate":5e-3,"decay_rate":0.99,"grad_clip":100.0,"learn_inverse":True,'target_std':None,'target_mean':None},\
                           "standard_ensemble":{"learning_rate":5e-3,"grad_clip":100.0,"decay_rate":0.99},\
-                          "single_target_gaussian":{"learning_rate":5e-3,"grad_clip":100.0,"decay_rate":0.99}}
+                          "single_target_gaussian":{"learning_rate":5e-3,"grad_clip":100.0,"decay_rate":0.99,'target_std':None,'target_mean':None}}
 
         for _method in ["nonbayes","standard_ensemble","single_target_gaussian"]:
             default_values[_method].update({"opt_method":"rmsprop"})
@@ -129,6 +130,12 @@ class regressor():
 
         # set mini batch size
         self.train_data.set_batch_size(self.batch_size)
+
+        # Set the target mean and standard deviation if they have been specified, otherwise the values are those from the data
+        if ('target_mean' in self.method_args and self.method_args['target_mean'] is not None):
+            self.train_data.set_target_mean(self.method_args['target_mean'])
+        if ('target_std' in self.method_args and self.method_args['target_std'] is not None):
+            self.train_data.set_target_std(self.method_args['target_std'])
 
         # feature dimensionality
         self.D = self.train_data.xs_standardized.shape[1]
@@ -279,7 +286,7 @@ class regressor():
                 # x,y = self.train_data.next_batch()
                 # feed = {model.input_data: x, model.target_data: y}
                 x_batches,y_batches = self.train_data.next_batch_set()
-                if (np.mod(batch_itr,10)==0):
+                if (np.mod(batch_itr,10)==0 and self.verbose):
                     print("epoch: {} of {}".format(batch_itr,num_minibatch))
 
                 for minibatch_iter in range(maxiter_per_minibatch):
