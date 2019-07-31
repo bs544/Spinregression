@@ -7,10 +7,11 @@ def get_rmse(net,x,y):
     rmse = np.sqrt(np.sum(np.square(y-y_pred)))
     return rmse
 
-def parity_plot(net,x,y,title_input,print_RMSE=True):
+def parity_plot(net,x,y,title_input,print_RMSE=True,save=True,savename='parity.pdf'):
     """
     Given a network and some test data (here it's x and y), plot predicted versus accurate spin density 
     """
+    savename = '{}_{}'.format(title_input,savename)
     y_pred, _ = net.predict(x)
 
     minmax = np.array([np.min(y),np.max(y)])
@@ -20,13 +21,16 @@ def parity_plot(net,x,y,title_input,print_RMSE=True):
     plt.xlabel('Spin Density')
     plt.ylabel('Predicted Spin Density')
     plt.title('Spin Density Parity Plot for {} Data'.format(title_input))
-    plt.show()
+    if (save):
+        plt.savefig(savename)
+    else:
+        plt.show()
     plt.close()
 
     if (print_RMSE):
         print(get_rmse(net,x,y))
 
-def rmse_plot(net,log_y=False):
+def rmse_plot(net,log_y=False,save=False,savename='RMSEplot.pdf'):
     """
     For a trained network, plots the rmse for the training and validation set over the course of a training run
     """
@@ -54,7 +58,10 @@ def rmse_plot(net,log_y=False):
     plt.xlabel("Percentage Completion of Training")
     plt.ylabel("RMSE")
     plt.title("Network Training and Validation RMSE During Training")
-    plt.show()
+    if (save):
+        plt.savefig(savename)
+    else:
+        plt.show()
     plt.close()
 
 def Ensemble_comparison(net):
