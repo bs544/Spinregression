@@ -47,7 +47,49 @@ class Cell_data():
         data = np.asarray(data)
         assert (len(data)==natoms), "data isn't the right size"
         return data
-    
+
+    def get_init_spins_from_castep(self,filename,natoms):
+        """
+        Parameters:
+            filename: (str) name of the .castep file to examine
+            natoms: (int) number of atoms, this has to be the same as the length of the array
+        Returns:
+            data: (array) shape (N,) Initial spin contribution from each atom in units of hbar/2
+        """
+        assert (filename[-7:]==".castep"), "Incorrect file type submitted to get_spins_from_castep, needs to be .castep, not {}".format(filename[-7:])
+
+        with open(filename,'r') as f:
+            lines = f.readlines()
+        
+        spin_calc = True
+
+        for line in lines:
+            if ('treating system as non-spin-polarized' in line):
+                spin_calc = False
+                break
+        if (not spin_calc):
+            if (self.verbose):
+                print('Spin independent calculations, returning None as spin')
+            return None
+
+        data = []
+        line_num = 0
+        for i,line in enumerate(lines):
+            if ('Initial magnetic' in line):
+                line_num = i
+        try:
+            assert (line_num != 0), "Can't find initial magentic moment"
+        except AssertionError as error:
+            if (self.verbose):
+                print(error)
+            return None
+        lines = lines[line_num+3:line_num+3+natoms]
+        for line in lines:
+            split = line.split()
+            data.append(int(float(split[-2])))
+        data = np.asarray(data)
+        return data
+
     def load_castep(self,filename):
         """
         Parameters:
@@ -58,7 +100,7 @@ class Cell_data():
                     'cell': (3,3) array of cell vectors in Angstroms
                     'forces': (N,3) array of forces in eV/Angstrom
                     'positions': (N,3) array of positions in Angstroms
-                    'spins': (N,) array of Mulliken spins (hbar/2)
+                    'spin': (N,) array of Mulliken spins (hbar/2)
             status: (bool) if it returns false, then the load has failed
         """
 
@@ -101,7 +143,9 @@ class Cell_data():
         data['energy'] = energy
 
         spins = self.get_spins_from_castep(filename,posns.shape[0])
+        init_spins = self.get_init_spins_from_castep(filename,posns.shape[0])
         data['spin'] = spins
+        data['init_spins'] = init_spins
  
         return data, True
     
@@ -294,7 +338,101 @@ class Cell_data():
             print('Time taken: {0:.2f}s'.format(time.time()-start))
         return
             
+    def write_potfit_configs(self,write_dir,filename='Potfit_configs.txt',cell_list=None,useforce=True,append=True):
+        """
+        Parameters:
+            cell_list: (list) list of cell indices from self.data to use, if None then use all values
+            write_dir: (str) directory in which to write the configurations file
+            append: (bool) if True then will append the potfit if it already exists
+        Actions:
+            Assumes you have loaded the data already so self.data can be used
+            writes configuration file that can be used by potfit
+        overall look of each configuration:
+        #N natoms useforce
+        #X boxx.x boxx.y boxx.z
+        #Y boxy.x boxy.y boxy.z
+        #Z boxz.x boxz.y boxz.z
+        #E coh_eng
+        #F 
+        0 x y z f_x f_y f_z
+        0 x y z f_x f_y f_z
+        0 x y z f_x f_y f_z
+        0 x y z f_x f_y f_z
+
+        these configurations are concatenated in the same config file
+        coh_energy is the energy/#atoms - individual atom energy in this case
+        """
+
+        Fe_atom_energy = -853.8262 #eV
+        
+
+        filename = '{}{}'.format(write_dir,filename)
+        if (append):
+            f = open(filename,'a')
+        else:
+            f = open(filename,'w')
+
+        force_num = 1 if useforce else 0
+
+        if (cell_list is None):
+            cell_list = [i for i in range(len(self.data))]
+        elif (isinstance(cell_list,int)):
+            cell_list = [i for i in range(cell_list)]
+
+        for i in cell_list:
+            data = self.data[i]
+            positions = data['positions']
+            energy = data['energy']
+            forces = data['forces']
+            cell_vect = data['cell']
+
+            natoms = positions.shape[0]
+            coh_energy = energy/natoms - Fe_atom_energy
+
+            f.write('#N {} {}\n'.format(natoms,force_num)) #1 to indicate that force should be used
+            f.write('#X\t{0:.5f}\t{1:.5f}\t{2:.5f}\n'.format(cell_vect[0,0],cell_vect[0,1],cell_vect[0,2]))
+            f.write('#Y\t{0:.5f}\t{1:.5f}\t{2:.5f}\n'.format(cell_vect[1,0],cell_vect[1,1],cell_vect[1,2]))
+            f.write('#Z\t{0:.5f}\t{1:.5f}\t{2:.5f}\n'.format(cell_vect[2,0],cell_vect[2,1],cell_vect[2,2]))
+            f.write('#E {}\n'.format(coh_energy))
+            f.write('#F\n')
+            for i in range(natoms):
+                f.write('0 {0:.9f}\t{1:.9f}\t{2:.9f}\t{3:.5f} \t{4:.5f} \t{5:.5f}\n'.format(positions[i,0],positions[i,1],positions[i,2],forces[i,0],forces[i,1],forces[i,2]))
+        
+        f.close()
+
+    def get_data_array(self):
+        """
+        Returns:
+            decription_data: (array) shape (Ncells,NatomsperCell,1) gives the atomic spins in this form
+            energy_data: (array) shape (Ncells,1) gives the cell energy in this form
+        """
+        natoms = []
+        spins  = []
+        energies = []
+        for datadict in self.data:
+            natoms.append(len(datadict['spin']))
+            spins.append(datadict['spin'])
+            energies.append(datadict['energy'])
+        
+        NatomsperCell = max(natoms)
+        description_data = np.zeros((len(self.data),NatomsperCell,2))
+        energy_data = np.zeros((len(self.data),1))
+        for i in range(len(self.data)):
+            description_data[i,:,0] = spins[i]
+            description_data[i,:,1] = np.tile(sum(spins[i]),(NatomsperCell))
+            energy_data[i,0] = energies[i]
+        return description_data, energy_data
 
 
 
-
+# base_dir = '../../Castep_Data/Spin/'
+# sub_dirs = ['FM/','AFM/']
+# num_configs = [1900,1650]
+# # num_configs = [750,750,250,250,250,250,250,250,250,250,250]
+# # num_configs = [5,5,5,5,5,5,5,5,5,5,5]
+# for i, sub_dir in enumerate(sub_dirs):
+#     num = num_configs[i]
+#     dir_ = '{}{}'.format(base_dir,sub_dir)
+#     handler = Cell_data(dir_,'./Pickle_Data/',verbose=True)
+#     handler.load_cell_data(save=False,load=False)
+#     handler.write_potfit_configs('./',filename='SpinConfigs.txt',cell_list=num)
