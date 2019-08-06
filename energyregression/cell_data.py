@@ -2,6 +2,7 @@ import numpy as np
 from parsers.dft.parser_castep import parse
 #parser code courtesy of Andrew Fowler
 from parsers.structure_class import supercell
+from energyregression.rad_fp import calculate
 import pickle
 import os
 import copy
@@ -400,8 +401,13 @@ class Cell_data():
         
         f.close()
 
-    def get_data_array(self):
+    def get_data_array(self,nmax=4,weighting=None,rcut=6.0,parallel=True):
         """
+        Parameters:
+            nmax: number of radial basis functions to use in radial descriptor
+            weighting: (list) weightings on atoms, if None, then use the atomic spins
+            rcut: (float) cutoff radius for radial descriptions
+            parallel: (bool) whether to parallelise calculations
         Returns:
             decription_data: (array) shape (Ncells,NatomsperCell,1) gives the atomic spins in this form
             energy_data: (array) shape (Ncells,1) gives the cell energy in this form
@@ -415,11 +421,19 @@ class Cell_data():
             energies.append(datadict['energy'])
         
         NatomsperCell = max(natoms)
-        description_data = np.zeros((len(self.data),NatomsperCell,2))
+        description_data = np.zeros((len(self.data),NatomsperCell,1+nmax))
         energy_data = np.zeros((len(self.data),1))
         for i in range(len(self.data)):
             description_data[i,:,0] = spins[i]
-            description_data[i,:,1] = np.tile(sum(spins[i]),(NatomsperCell))
+
+            cell = self.data[i]['cell']
+            positions = self.data[i]['positions']
+            positions = np.dot(positions,np.linalg.inv(cell))
+            if (weighting is None):
+                weighting = list(self.data[i]['spin'] + 4)
+            description_data[i,:,1:] = calculate(cell,positions,nmax,rcut=rcut,parallel=parallel,weighting=weighting)
+
+
             energy_data[i,0] = energies[i]
         return description_data, energy_data
 
