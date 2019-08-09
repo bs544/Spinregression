@@ -6,8 +6,7 @@ import pickle
 import os
 import copy
 
-#I'm going to remove the threshold stuff, since it's more transparent if that's done outside the class
-#I'm also going to clean up the code a bit
+
 #I've changed the spin condition to be when the number of spins >0, this was just so it would be easier to deal with non-collinear spins if and when the time comes.
 
 class castep_data():

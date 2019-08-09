@@ -3,19 +3,24 @@ from parsers.dft.parser_castep import parse
 #parser code courtesy of Andrew Fowler
 from parsers.structure_class import supercell
 from energyregression.rad_fp import calculate
+from features.regressor import regressor
+from features.bispectrum import calculate as spin_calculate
 import pickle
 import os
 import copy
 import time
 
 class Cell_data():
-    def __init__(self,datadir,savedir,verbose=False,savename='cell_data'):
+    def __init__(self,datadir,savedir,verbose=False,savename='cell_data',spin=True):
         self.datadir = datadir
         self.savedir = savedir
         self.verbose = verbose
         self.savename = savename
         self.data = []
-        self.keys = ['cell','positions','forces','energy','spins']
+        self.spin = spin
+        self.keys = ['cell','positions','forces','energy']
+        if (self.spin):
+            self.keys.append('spin')
 
     def get_spins_from_castep(self,filename,natoms):
         """
@@ -143,10 +148,12 @@ class Cell_data():
         data['forces'] = forces
         data['energy'] = energy
 
-        spins = self.get_spins_from_castep(filename,posns.shape[0])
-        init_spins = self.get_init_spins_from_castep(filename,posns.shape[0])
-        data['spin'] = spins
-        data['init_spins'] = init_spins
+        if (self.spin):
+
+            spins = self.get_spins_from_castep(filename,posns.shape[0])
+            init_spins = self.get_init_spins_from_castep(filename,posns.shape[0])
+            data['spin'] = spins
+            data['init_spins'] = init_spins
  
         return data, True
     
@@ -234,8 +241,8 @@ class Cell_data():
                 saved_dict = pickle.load(f)
 
                 try:
-                    assert all(key in saved_dict.keys() for key in self.keys) and \
-                        all(key in self.keys for key in saved_dict.keys()), "Saved dictionary has an incompatible set of keys"
+                    # and all(key in self.keys for key in saved_dict.keys()),
+                    assert all(key in saved_dict.keys() for key in self.keys), "Saved dictionary has an incompatible set of keys\n saved keys: {} \n expected keys: {}".format(saved_dict.keys(),self.keys)
                 except AssertionError as error:
                     if (self.verbose):
                         print(error)
@@ -401,13 +408,34 @@ class Cell_data():
         
         f.close()
 
-    def get_data_array(self,nmax=4,weighting=None,rcut=6.0,parallel=True):
+    def get_weights_from_net(self,fp_dict,cell,positions,net,init_weights):
+        """
+        Parameters:
+            fp_dict: (dict) contains the parameters for the network input: nmax,lmax,rcut,local_fptype,global_fptype,gnmax,glmax,grcut
+            cell: (array) shape (3,3) cell vectors
+            positions: (array) shape (N,3) fractional coordinates of the atoms
+            name: (str) name of the network, needed to load it
+            init_weights: (list) initial weights for the fingerprints
+        Returns:
+            weightings: (list) weightings of atoms based on predicted spins
+        """
+        
+        fp = spin_calculate(cell,positions,positions,fp_dict['nmax'],fp_dict['lmax'],fp_dict['rcut'],local_form=fp_dict['local_form'],\
+            global_form=fp_dict['global_form'],gnmax=fp_dict['gnmax'],glmax=fp_dict['glmax'],grcut=fp_dict['grcut'],weighting=init_weights)
+
+        spin = net.predict(fp)
+        weights = list(0.5*spin+4)# so it becomes number of spin up valence electrons
+        return weights
+
+    def get_data_array(self,nmax=4,weighting=None,rcut=6.0,parallel=True,netname=None,net_dict=None):
         """
         Parameters:
             nmax: number of radial basis functions to use in radial descriptor
             weighting: (list) weightings on atoms, if None, then use the atomic spins
             rcut: (float) cutoff radius for radial descriptions
             parallel: (bool) whether to parallelise calculations
+            net_name: (str) name of the network, if you don't want network predicted spins, set this to None
+            net_dict: (str) dictionary of network parameters, again set to None if you don't want to use the network
         Returns:
             decription_data: (array) shape (Ncells,NatomsperCell,1) gives the atomic spins in this form
             energy_data: (array) shape (Ncells,1) gives the cell energy in this form
@@ -423,6 +451,10 @@ class Cell_data():
         NatomsperCell = max(natoms)
         description_data = np.zeros((len(self.data),NatomsperCell,1+nmax))
         energy_data = np.zeros((len(self.data),1))
+
+        if (netname is not None):
+            net = regressor()
+            net.load(netname)
         for i in range(len(self.data)):
             description_data[i,:,0] = spins[i]
 
@@ -430,7 +462,11 @@ class Cell_data():
             positions = self.data[i]['positions']
             positions = np.dot(positions,np.linalg.inv(cell))
             if (weighting is None):
-                weighting = list(self.data[i]['spin'] + 4)
+                if (netname is not None and net_dict is not None):
+                    init_weights = self.data[i]['init_spin']
+                    weighting = self.get_weights_from_net(net_dict,cell,positions,net,init_weights)
+                else:
+                    weighting = list(self.data[i]['spin'] + 4)
             description_data[i,:,1:] = calculate(cell,positions,nmax,rcut=rcut,parallel=parallel,weighting=weighting)
 
 

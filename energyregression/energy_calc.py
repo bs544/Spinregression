@@ -1,5 +1,5 @@
 import numpy as np
-from network import Cell_network
+from energyregression.network import Cell_network
 import os
 import pickle
 
