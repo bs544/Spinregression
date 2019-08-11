@@ -340,7 +340,7 @@ class castep_data():
                 print("Didn't successfully get any names")
         return names, Good_read
 
-    def get_init_spins_from_castep(self,filename,natoms):
+    def get_init_spins_from_castep(self,name,natoms):
         """
         Parameters:
             filename: (str) name of the .castep file to examine
@@ -348,6 +348,7 @@ class castep_data():
         Returns:
             data: (array) shape (N,) Initial spin contribution from each atom in units of hbar/2
         """
+        filename = '{}{}'.format(self.path,name)
         assert (filename[-7:]==".castep"), "Incorrect file type submitted to get_spins_from_castep, needs to be .castep, not {}".format(filename[-7:])
 
         with open(filename,'r') as f:
