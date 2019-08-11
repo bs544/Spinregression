@@ -475,14 +475,7 @@ class Cell_data():
 
 
 
-# base_dir = '../../Castep_Data/Spin/'
-# sub_dirs = ['FM/','AFM/']
-# num_configs = [1900,1650]
-# # num_configs = [750,750,250,250,250,250,250,250,250,250,250]
-# # num_configs = [5,5,5,5,5,5,5,5,5,5,5]
-# for i, sub_dir in enumerate(sub_dirs):
-#     num = num_configs[i]
-#     dir_ = '{}{}'.format(base_dir,sub_dir)
-#     handler = Cell_data(dir_,'./Pickle_Data/',verbose=True)
-#     handler.load_cell_data(save=False,load=False)
-#     handler.write_potfit_configs('./',filename='SpinConfigs.txt',cell_list=num)
+# dir_ = '../../Castep_Data/NoSpin/Train_FullData/'
+# handler = Cell_data(dir_,'./Pickle_Data/',verbose=True)
+# handler.load_cell_data(save=False,load=False)
+# handler.write_potfit_configs('./',filename='AllNoSpinConfigs.txt')

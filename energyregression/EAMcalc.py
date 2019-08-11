@@ -1,6 +1,8 @@
 import numpy as np
 import os
-
+import ase
+from ase.calculators.eam import EAM
+from ase import Atoms
 
 def read_header(data):
     """
@@ -111,7 +113,20 @@ def harmonic(alpha,r_0,cutoff,r):
     """
     return  np.where(r<cutoff, alpha*(r-r_0)**2, np.zeros(r.shape))
 
-#Transfer functions
+def LJ(e,s,cutoff,r):
+    """
+    Parameters:
+        e: (float)
+        s: (float)
+        cutoff: (float)
+        r: (array), shape(N,M) interatomic distances
+    Returns:
+        V = 4e*[(s/r)^12-(s/r)^6]
+    """
+    x = (s/r)**6
+    return np.where(r<cutoff,4*e*(x**2-x),np.zeros(r.shape))
+
+#Density functions
 def csw(a_1,a_2,alpha,beta,cutoff,r):
     """
     Parameters:
@@ -126,7 +141,6 @@ def csw(a_1,a_2,alpha,beta,cutoff,r):
     Note:
         cos and sin functions accept inputs as radians, and I'm expecting this to be the correct form
     """
-    
     return np.where(r<cutoff, (1+a_1*np.cos(alpha*r)+a_2*np.sin(alpha*r))/r**beta, np.zeros(r.shape))
 
 def csw2(a_1,alpha,phi,beta,cutoff,r):
@@ -157,6 +171,34 @@ def universal(F_0,p,q,F_1,n):
     """
     return F_0*((q*(n**p) - p*(n**q))/(q-p)) + F_1*n
 
+#Cutoff function
+def f_c(r,r_c,h):
+    """
+    Parameters:
+        r: (array), shape(N,M) distances
+        r_c: (float), cutoff distance
+        h: (float), parameter for cutoff
+    Returns:
+        f_c(r,r_c,h) = x^4/(1+x^4), where x = (r-r_c)/h
+    """
+    x = (r-r_c)/h
+    return np.where(r<r_c,x**4/(1+x**4),np.zeros(r.shape))
+
+#smooth cutoff for functions
+def csw2_sc(a_1,alpha,phi,beta,cutoff,h,r):
+    """
+    See csw2 and f_c for description of parameters.
+    Applies the smooth cutoff to csw2
+    """
+    return csw2(a_1,alpha,phi,beta,cutoff,r)*f_c(r,cutoff,h)
+
+def LJ_sc(e,s,cutoff,h,r):
+    """
+    See LJ and f_c for a description of parameters
+    Applies the smooth cutoff to LJ
+    """
+    return LJ(e,s,cutoff,r)*f_c(r,cutoff,h)
+
 def get_total_density(r,function_params,function):
     """
     Parameters:
@@ -182,6 +224,17 @@ def get_total_density(r,function_params,function):
         cutoff = function_params[function]['cutoff']
         densities = csw2(a_1,alpha,phi,beta,cutoff,r)
         return np.sum(densities,axis=0) 
+    elif (function == 'csw2_sc'):
+        a_1 = function_params[function]['a']
+        alpha = function_params[function]['alpha']
+        beta = function_params[function]['beta']
+        phi = function_params[function]['phi']
+        cutoff = function_params[function]['cutoff']
+        h = function_params[function]['h']
+        densities = csw2_sc(a_1,alpha,phi,beta,cutoff,h,r)
+        # densities = np.where(densities>0,densities,np.zeros(densities.shape))
+        densities = np.sum(densities,axis=0)
+        return densities
     else:
         raise NotImplementedError
     return
@@ -195,9 +248,9 @@ def get_total_energy(r,function_params):
         Energy: (array), shape (M) energies for M atoms
     """
     functions = function_params.keys()
-    transfer_funcs = ['csw','csw2']
+    transfer_funcs = ['csw','csw2','csw2_sc']
     embedding_funcs = ['universal']
-    pairwise_funcs = ['harmonic']
+    pairwise_funcs = ['harmonic','lj','lj_sc']
 
     used_embedding_func = list(set(embedding_funcs)&set(functions))
     used_transfer_func = list(set(transfer_funcs)&set(functions))
@@ -212,13 +265,24 @@ def get_total_energy(r,function_params):
         func_dict = function_params[func]
         pairwise_energy = harmonic(func_dict['alpha'],func_dict['r_0'],func_dict['cutoff'],r)
         pairwise_energy = 0.5*np.sum(pairwise_energy)
+    elif (used_pairwise_func[0] == 'lj'):
+        func = used_pairwise_func[0]
+        func_dict = function_params[func]
+        pairwise_energy = LJ(func_dict['epsilon'],func_dict['sigma'],func_dict['cutoff'],r)
+        pairwise_energy = 0.5*np.sum(pairwise_energy)
+    elif (used_pairwise_func[0] == 'lj_sc'):
+        func = used_pairwise_func[0]
+        func_dict = function_params[func]
+        pairwise_energy = LJ_sc(func_dict['epsilon'],func_dict['sigma'],func_dict['cutoff'],func_dict['h'],r)
+        pairwise_energy = 0.5*np.sum(pairwise_energy)
     else:
         raise NotImplementedError
 
     
     func = used_transfer_func[0]
     densities = get_total_density(r,function_params,func)
-    
+    # densities = np.square(densities)
+
     if (used_embedding_func[0]=='universal'):
         func = used_embedding_func[0]
         func_dict = function_params[func]
@@ -227,7 +291,7 @@ def get_total_energy(r,function_params):
     else:
         raise NotImplementedError
     
-    return embedding_energy+pairwise_energy
+    return pairwise_energy+ embedding_energy
 
 def get_distances(positions,cell,cutoff):
     """
@@ -277,7 +341,7 @@ def get_cell_energy(cell,positions,param_dict):
     energy = get_total_energy(r,param_dict)
     return energy
 
-def get_energies(cell_list,position_list,param_file):
+def get_potfit_energies(cell_list,position_list,param_file):
     """
     Parameters:
         cell_list: (list) list of cell arrays
@@ -295,9 +359,44 @@ def get_energies(cell_list,position_list,param_file):
         energies.append(get_cell_energy(cell,positions,param_dict))
     return energies
 
-    
+def get_alloy_energies(cell_list,position_list,param_file):
+    """
+    Parameters:
+        cell_list: (list) list of cell arrays
+        position_list: (list) list of positions
+        param_file: (str) name of file containing parameters
+    Returns:
+        energy_list: (list) list of cell energies
+    """
+    calc = EAM(potential=param_file)
 
+    energies = []
+    for i in range(len(cell_list)):
+        cell = cell_list[i]
+        positions = position_list[i]
+        atoms = Atoms(['Fe' for i in range(positions.shape[0])],positions=positions,cell=cell)
+        atoms.set_calculator(calc)
+        energy = atoms.get_potential_energy()
+        energies.append(energy)
+    return energies
 
-    
+def get_energies(cell_list,position_list,param_file):
+    """
+    Parameters:
+        cell_list: (list) list of cell arrays
+        position_list: (list) list of positions
+        param_file: (str) name of file containing parameters
+    Returns:
+        energy_list: (list) list of cell energies
+    """
+
+    if ('.pot' in param_file):
+        energies = get_potfit_energies(cell_list,position_list,param_file)
+        return energies
+    elif ('.alloy' in param_file):
+        energies = get_alloy_energies(cell_list,position_list,param_file)
+        return energies
+    else:
+        raise NotImplementedError
 
 
