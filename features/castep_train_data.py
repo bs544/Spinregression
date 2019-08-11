@@ -40,7 +40,7 @@ class castep_data():
         self.verbose = verbose
         self.include_init = None
 
-        self.keys = ["edensity","xyz","cell","elements","positions","forces","mulliken_spins"]
+        self.keys = ["edensity","xyz","cell","elements","positions","forces","mulliken_spins","init_spins"]
 
         self.init_keys = ['init_edensity']
 
@@ -340,6 +340,48 @@ class castep_data():
                 print("Didn't successfully get any names")
         return names, Good_read
 
+    def get_init_spins_from_castep(self,filename,natoms):
+        """
+        Parameters:
+            filename: (str) name of the .castep file to examine
+            natoms: (int) number of atoms, this has to be the same as the length of the array
+        Returns:
+            data: (array) shape (N,) Initial spin contribution from each atom in units of hbar/2
+        """
+        assert (filename[-7:]==".castep"), "Incorrect file type submitted to get_spins_from_castep, needs to be .castep, not {}".format(filename[-7:])
+
+        with open(filename,'r') as f:
+            lines = f.readlines()
+        
+        spin_calc = True
+
+        for line in lines:
+            if ('treating system as non-spin-polarized' in line):
+                spin_calc = False
+                break
+        if (not spin_calc):
+            if (self.verbose):
+                print('Spin independent calculations, returning None as spin')
+            return None
+
+        data = []
+        line_num = 0
+        for i,line in enumerate(lines):
+            if ('Initial magnetic' in line):
+                line_num = i
+        try:
+            assert (line_num != 0), "Can't find initial magentic moment"
+        except AssertionError as error:
+            if (self.verbose):
+                print(error)
+            return None
+        lines = lines[line_num+3:line_num+3+natoms]
+        for line in lines:
+            split = line.split()
+            data.append(int(float(split[-2])))
+        data = np.asarray(data)
+        return data
+
     def get_spins_from_castep(self,name,natoms):
         """
         Parameters:
@@ -413,6 +455,7 @@ class castep_data():
                 celldict = self.get_atoms('{}{}'.format(name,'.castep'))
                 mulliken = self.get_spins_from_castep('{}{}'.format(name,'.castep'),celldict['positions'].shape[0])
                 celldict['mulliken_spins'] = mulliken
+                celldict['init_spins'] = self.get_init_spins_from_castep('{}{}'.format(name,'.castep'),celldict['positions'].shape[0])
                 fin_dendict = self.get_densities('{}{}'.format(name,'.den_fmt'))
                 if (self.include_init):
                     init_dendict = self.get_densities('{}{}{}'.format(name,'_initial','.den_fmt'))
@@ -464,6 +507,7 @@ class castep_data():
         and if self.nspins>0:
             ['sdensity']
             ['mulliken_spins']
+            ['init_spins']
 
             if _initial.den_fmt files are included, it also contains:
                 ['init_sdensity']
@@ -593,7 +637,8 @@ class castep_data():
                         tmp_arr[j] = np.mean(self.data[i]['init_edensity'][atom_idx])
                     init_edensity.append(tmp_arr)
 
-            
+            if (fpargs['weighting'] is None):
+                fpargs['weighting'] = list(0.5*self.data[i]['init_spins'] + 4)
             fp_ = calculate(cell,frac_positions,xyz_,fpargs['nmax'],fpargs['lmax'],rcut=fpargs['rcut'],local_form=fpargs['local_fptype'],\
                 global_form=fpargs['global_fptype'],glmax=fpargs['glmax'],gnmax=fpargs['gnmax'],grcut=fpargs['grcut'],weighting=fpargs['weighting'])
             fp.append(fp_)
