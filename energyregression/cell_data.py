@@ -455,7 +455,7 @@ class Cell_data():
             energies.append(datadict['energy'])
         
         NatomsperCell = max(natoms)
-        description_data = np.zeros((len(self.data),NatomsperCell,1+nmax))
+        description_data = np.zeros((len(self.data),NatomsperCell,2+nmax))
         energy_data = np.zeros((len(self.data),1))
 
         if (netname is not None):
@@ -465,6 +465,7 @@ class Cell_data():
         position_list = []
         for i in range(len(self.data)):
             description_data[i,:,0] = spins[i]
+            description_data[i,:,1] = np.tile(sum(spins[i])/len(spins[i]),len(spins[i]))
 
             cell = self.data[i]['cell']
             positions = self.data[i]['positions']
@@ -474,10 +475,12 @@ class Cell_data():
             if (weighting is None):
                 if (netname is not None and net_dict is not None):
                     init_weights = self.data[i]['init_spin']
-                    weighting = self.get_weights_from_net(net_dict,cell,positions,net,init_weights)
+                    weighting_ = self.get_weights_from_net(net_dict,cell,positions,net,init_weights)
                 else:
-                    weighting = list(self.data[i]['spin'] + 4)
-            description_data[i,:,1:] = calculate(cell,positions,nmax,rcut=rcut,parallel=parallel,weighting=weighting)
+                    weighting_ = list(0.5*self.data[i]['spin'] + 4)
+            else:
+                weighting_ = weighting
+            description_data[i,:,2:] = calculate(cell,positions,nmax,rcut=rcut,parallel=parallel,weighting=weighting_)
 
             if (cohesive):
                 energy_data[i,0] = energies[i]/positions.shape[0] - Fe_energy
@@ -485,6 +488,7 @@ class Cell_data():
                 energy_data[i,0] = energies[i]
         if (EAMfile is not None):
             eam_energy = get_EAM_energies(cell_list,position_list,EAMfile)
+            #only works because all of the cells have the same number of atoms
             eam_energy = np.array(eam_energy).reshape(-1,1)*0.25
             energy_data -= eam_energy
         return description_data, energy_data
