@@ -232,9 +232,7 @@ def get_total_density(r,function_params,function):
         cutoff = function_params[function]['cutoff']
         h = function_params[function]['h']
         densities = csw2_sc(a_1,alpha,phi,beta,cutoff,h,r)
-        # densities = np.where(densities>0,densities,np.zeros(densities.shape))
-        densities = np.sum(densities,axis=0)
-        return densities
+        return np.sum(densities,axis=0)
     else:
         raise NotImplementedError
     return
@@ -281,7 +279,6 @@ def get_total_energy(r,function_params):
     
     func = used_transfer_func[0]
     densities = get_total_density(r,function_params,func)
-    # densities = np.square(densities)
 
     if (used_embedding_func[0]=='universal'):
         func = used_embedding_func[0]
@@ -380,7 +377,7 @@ def get_alloy_energies(cell_list,position_list,param_file):
         energies.append(energy)
     return energies
 
-def get_energies(cell_list,position_list,param_file):
+def get_EAM_energies(cell_list,position_list,param_file):
     """
     Parameters:
         cell_list: (list) list of cell arrays
@@ -393,7 +390,7 @@ def get_energies(cell_list,position_list,param_file):
     if ('.pot' in param_file):
         energies = get_potfit_energies(cell_list,position_list,param_file)
         return energies
-    elif ('.alloy' in param_file):
+    elif ('.alloy' in param_file or '.fs' in param_file):
         energies = get_alloy_energies(cell_list,position_list,param_file)
         return energies
     else:

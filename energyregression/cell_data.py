@@ -3,6 +3,7 @@ from parsers.dft.parser_castep import parse
 #parser code courtesy of Andrew Fowler
 from parsers.structure_class import supercell
 from energyregression.rad_fp import calculate
+from energyregression.EAMcalc import get_EAM_energies
 from features.regressor import regressor
 from features.bispectrum import calculate as spin_calculate
 import pickle
@@ -427,7 +428,7 @@ class Cell_data():
         weights = list(0.5*spin+4)# so it becomes number of spin up valence electrons
         return weights
 
-    def get_data_array(self,nmax=4,weighting=None,rcut=6.0,parallel=True,netname=None,net_dict=None):
+    def get_data_array(self,nmax=4,weighting=None,rcut=6.0,parallel=True,netname=None,net_dict=None,cohesive=True,EAMfile=None):
         """
         Parameters:
             nmax: number of radial basis functions to use in radial descriptor
@@ -436,6 +437,8 @@ class Cell_data():
             parallel: (bool) whether to parallelise calculations
             net_name: (str) name of the network, if you don't want network predicted spins, set this to None
             net_dict: (str) dictionary of network parameters, again set to None if you don't want to use the network
+            cohesive: (bool) whether to use the energy directly from castep, or the cohesive energy per atom
+            EAMfile: (str) name of file containing EAM parameters. If this is not None, the eam predicted energy is subtracted from the cohesive energy
         Returns:
             decription_data: (array) shape (Ncells,NatomsperCell,1) gives the atomic spins in this form
             energy_data: (array) shape (Ncells,1) gives the cell energy in this form
@@ -443,6 +446,9 @@ class Cell_data():
         natoms = []
         spins  = []
         energies = []
+        Fe_energy = -853.8262#eV
+        if (EAMfile is not None):
+            cohesive = True
         for datadict in self.data:
             natoms.append(len(datadict['spin']))
             spins.append(datadict['spin'])
@@ -455,11 +461,15 @@ class Cell_data():
         if (netname is not None):
             net = regressor()
             net.load(netname)
+        cell_list = []
+        position_list = []
         for i in range(len(self.data)):
             description_data[i,:,0] = spins[i]
 
             cell = self.data[i]['cell']
             positions = self.data[i]['positions']
+            cell_list.append(cell)
+            position_list.append(positions)
             positions = np.dot(positions,np.linalg.inv(cell))
             if (weighting is None):
                 if (netname is not None and net_dict is not None):
@@ -469,13 +479,21 @@ class Cell_data():
                     weighting = list(self.data[i]['spin'] + 4)
             description_data[i,:,1:] = calculate(cell,positions,nmax,rcut=rcut,parallel=parallel,weighting=weighting)
 
-
-            energy_data[i,0] = energies[i]
+            if (cohesive):
+                energy_data[i,0] = energies[i]/positions.shape[0] - Fe_energy
+            else:
+                energy_data[i,0] = energies[i]
+        if (EAMfile is not None):
+            eam_energy = get_EAM_energies(cell_list,position_list,EAMfile)
+            eam_energy = np.array(eam_energy).reshape(-1,1)*0.25
+            energy_data -= eam_energy
         return description_data, energy_data
 
 
 
-# dir_ = '../../Castep_Data/NoSpin/Train_FullData/'
+# dir_ = '../../Castep_Data/Spin/MultiConfigFCC/'
 # handler = Cell_data(dir_,'./Pickle_Data/',verbose=True)
 # handler.load_cell_data(save=False,load=False)
-# handler.write_potfit_configs('./',filename='AllNoSpinConfigs.txt')
+# idx = np.random.choice(np.arange(len(handler.data)),750,replace=False)
+# cell_list = [i for i in idx[:750]]
+# handler.write_potfit_configs('./',filename='MixedFCCconfigs.txt',cell_list=cell_list)
