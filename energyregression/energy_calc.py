@@ -168,7 +168,6 @@ class energy_calculator():
         with open("./{}/calc_{}.pckl".format(name,name),"wb") as f:
             pickle.dump(attributes,f)
         
-    
     def load(self,name='model'):
         """
         Parameters:

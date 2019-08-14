@@ -34,14 +34,14 @@ class Cell_network():
         
         dtype = self.arg_dict['dtype']
         
-        self.lr = tf.Variable(self.arg_dict['lr'],trainable=False,name='learning_rate',dtype=dtype)
+        self.lr = tf.Variable(self.arg_dict['lr'],trainable=False,name='e_learning_rate',dtype=dtype)
         self.input_data = tf.placeholder(dtype,[None,None,self.layers[0]])
 
         self.weights = []
         self.biases = []
         
         #set up network weights
-        with tf.variable_scope(self.name+'net_params'):
+        with tf.variable_scope(self.name+'energy_net_params'):
             for i in range(1, len(self.layers)):
                 self.weights.append(tf.Variable(tf.random_normal([self.layers[i-1], self.layers[i]], stddev=0.1,dtype=dtype), \
                         name='weights_'+str(i-1),dtype=dtype))
