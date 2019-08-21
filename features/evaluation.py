@@ -1,13 +1,17 @@
 import numpy as np
 from features.regressor import regressor
 import matplotlib.pyplot as plt
+from matplotlib import rcParams
+plt.rc('text', usetex=True)
+plt.rc('font',family='seriff')
+rcParams['figure.dpi'] = 150
 
 def get_rmse(net,x,y):
     y_pred, _ = net.predict(x)
     rmse = np.sqrt(np.sum(np.square(y-y_pred)))
     return rmse
 
-def parity_plot(net,x,y,title_input,print_RMSE=True,save=True,savename='parity.pdf'):
+def parity_plot(net,x,y,title_input=None,print_RMSE=True,save=True,savename='parity.pdf'):
     """
     Given a network and some test data (here it's x and y), plot predicted versus accurate spin density 
     """
@@ -16,11 +20,13 @@ def parity_plot(net,x,y,title_input,print_RMSE=True,save=True,savename='parity.p
 
     minmax = np.array([np.min(y),np.max(y)])
 
-    plt.plot(y,y_pred,'b.')
+    
     plt.plot(minmax,minmax,'r')
-    plt.xlabel('Spin Density')
-    plt.ylabel('Predicted Spin Density')
-    plt.title('Spin Density Parity Plot for {} Data'.format(title_input))
+    plt.plot(y,y_pred,'b.',markersize=2)
+    plt.xlabel(r'Spin Density ($\hbar$/2)')
+    plt.ylabel(r'Predicted Spin Density ($\hbar$/2)')
+    if (title_input is not None):
+        plt.title('Spin Density Parity Plot for {} Data'.format(title_input))
     if (save):
         plt.savefig(savename)
     else:

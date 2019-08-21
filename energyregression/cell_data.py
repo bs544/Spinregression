@@ -409,7 +409,7 @@ class Cell_data():
         
         f.close()
 
-    def get_weights_from_net(self,fp_dict,cell,positions,net,init_weights):
+    def get_spins_from_net(self,fp_dict,cell,positions,net_class,init_weights):
         """
         Parameters:
             fp_dict: (dict) contains the parameters for the network input: nmax,lmax,rcut,local_fptype,global_fptype,gnmax,glmax,grcut
@@ -418,15 +418,21 @@ class Cell_data():
             name: (str) name of the network, needed to load it
             init_weights: (list) initial weights for the fingerprints
         Returns:
-            weightings: (list) weightings of atoms based on predicted spins
+            spin: (list) predicted spins of atoms
         """
-        
-        fp = spin_calculate(cell,positions,positions,fp_dict['nmax'],fp_dict['lmax'],fp_dict['rcut'],local_form=fp_dict['local_form'],\
-            global_form=fp_dict['global_form'],gnmax=fp_dict['gnmax'],glmax=fp_dict['glmax'],grcut=fp_dict['grcut'],weighting=init_weights)
 
-        spin = net.predict(fp)
-        weights = list(0.5*spin+4)# so it becomes number of spin up valence electrons
-        return weights
+        weights = list(0.5*np.array(init_weights) + 4)
+        displacement = np.array([0.0,0.0,0.0001])
+        
+        abs_positions = np.dot(positions,cell)
+        xyz = abs_positions
+        for i in range(xyz.shape[0]):
+            xyz[i,:] += displacement
+        fp = spin_calculate(cell,positions,xyz,fp_dict['nmax'],fp_dict['lmax'],fp_dict['rcut'],local_form=fp_dict['local_fptype'],\
+            global_form=fp_dict['global_fptype'],gnmax=fp_dict['gnmax'],glmax=fp_dict['glmax'],grcut=fp_dict['grcut'],weighting=weights)
+
+        spin,_ = net_class.predict(fp)
+        return spin
 
     def get_data_array(self,nmax=4,weighting=None,rcut=6.0,parallel=True,netname=None,net_dict=None,cohesive=True,EAMfile=None):
         """
@@ -459,14 +465,11 @@ class Cell_data():
         energy_data = np.zeros((len(self.data),1))
 
         if (netname is not None):
-            net = regressor()
-            net.load(netname)
+            net_class = regressor()
+            net_class.load(netname)
         cell_list = []
         position_list = []
         for i in range(len(self.data)):
-            description_data[i,:,0] = spins[i]
-            description_data[i,:,1] = np.tile(sum(spins[i])/len(spins[i]),len(spins[i]))
-
             cell = self.data[i]['cell']
             positions = self.data[i]['positions']
             cell_list.append(cell)
@@ -474,24 +477,83 @@ class Cell_data():
             positions = np.dot(positions,np.linalg.inv(cell))
             if (weighting is None):
                 if (netname is not None and net_dict is not None):
-                    init_weights = self.data[i]['init_spin']
-                    weighting_ = self.get_weights_from_net(net_dict,cell,positions,net,init_weights)
+                    init_weights = list(self.data[i]['init_spins'])
+                    spins_ = self.get_spins_from_net(net_dict,cell,positions,net_class,init_weights)
+                    spins_ = spins_.flatten()
+                    # print("Calculated Spin: {}".format(spins[i]))
+                    # print("Network Spin: {}".format(spins_))
+                    weighting_ = list(0.5*spins_ + 4)
                 else:
                     weighting_ = list(0.5*self.data[i]['spin'] + 4)
             else:
                 weighting_ = weighting
-            description_data[i,:,2:] = calculate(cell,positions,nmax,rcut=rcut,parallel=parallel,weighting=weighting_)
+            if (netname is not None and net_dict is not None):
+                description_data[i,:,0] = spins_
+                description_data[i,:,1] = np.tile(sum(spins_)/len(spins_),len(spins_))
+            else:
+                description_data[i,:,0] = spins[i]
+                description_data[i,:,1] = np.tile(sum(spins[i])/len(spins[i]),len(spins[i]))
+            if (nmax>0):
+                description_data[i,:,2:] = calculate(cell,positions,nmax,rcut=rcut,parallel=parallel,weighting=weighting_)
 
             if (cohesive):
                 energy_data[i,0] = energies[i]/positions.shape[0] - Fe_energy
             else:
                 energy_data[i,0] = energies[i]
+        if (netname is not None):
+            net_class.Close_session()
+            net_class = None
         if (EAMfile is not None):
             eam_energy = get_EAM_energies(cell_list,position_list,EAMfile)
             #only works because all of the cells have the same number of atoms
             eam_energy = np.array(eam_energy).reshape(-1,1)*0.25
             energy_data -= eam_energy
         return description_data, energy_data
+    
+    def get_data_EAM_energy(self,eam_file):
+        """
+        Parameters:
+            eam_file: (str) name of the file with the EAM function parameters
+        Returns:
+            energy_list: (list) list of the energy for each element in self.data
+        """
+
+        cell = []
+        positions = []
+        for data in self.data:
+            cell.append(data['cell'])
+            positions.append(data['positions'])
+        energy_list = get_EAM_energies(cell,positions,eam_file)
+        return energy_list
+    
+    def get_cohesive_energy(self):
+        """
+        Returns:
+            energy_list: (list) cohesive energy for each element in self.data
+        """
+        energy_list = []
+        Fe_energy = -853.8262#eV
+        for data in self.data:
+            energy_list.append(data['energy']/data['positions'].shape[0]-Fe_energy)
+        return energy_list
+        
+    def get_combined_energy(self,energy_net,energy_net_dict,eam_file,cell_list,position_list,spin_net=None,spin_net_dict=None):
+        """
+        Params:
+            energy_net: (energy calc class) network for predicting energy corrections
+            energy_net_dict: (dict) dictionary of parameters for the energy network
+            spin_net: (regressor class) network for predicting atomic spins
+            spin_net_dict: (dict) dictionary of parameters for the spin network
+            eam_file: (str) file from which to load the EAM potential
+            cell_list: (list) list of cell vectors
+            position_list: (list) list of position vectors
+        Returns:
+            Combined Energy: Energy prediction based on the EAM potential and the neural network correction
+        """
+        EAM_energy = np.array(get_EAM_energies(cell_list,position_list,eam_file))*0.25
+
+        
+
 
 
 

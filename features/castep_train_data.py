@@ -10,7 +10,7 @@ import copy
 #I've changed the spin condition to be when the number of spins >0, this was just so it would be easier to deal with non-collinear spins if and when the time comes.
 
 class castep_data():
-    def __init__(self,dataPath="./",filename="castep_density_data",savedir="./Pickle_data/",datalist=None,nspins=0,verbose=False):
+    def __init__(self,dataPath="./",filename="castep_density_data",savedir="./Pickle_data/",datalist=None,nspins=0,verbose=False,include_init_spins=True):
         """
         This class reads in data of the form of a *.castep *.den_fmt *_initial.den_fmt set of files for each cell 
         and outputs a list of dictionaries, one for each cell in self.data, each dictionaly contains:
@@ -39,14 +39,17 @@ class castep_data():
         self.datalist = datalist
         self.verbose = verbose
         self.include_init = None
+        self.include_init_spins = include_init_spins
 
-        self.keys = ["edensity","xyz","cell","elements","positions","forces","mulliken_spins","init_spins"]
+        self.keys = ["edensity","xyz","cell","elements","positions","forces","mulliken_spins"]
 
         self.init_keys = ['init_edensity']
 
         if self.nspins>0:
             self.keys.append('sdensity')
             self.init_keys.append('init_sdensity')
+            if (self.include_init_spins):
+                self.keys.append('init_spins')
 
     def get_densities(self,name):
         """
@@ -424,7 +427,7 @@ class castep_data():
             pickle.dump(save_dict,f)
         return
 
-    def load_castepData(self,load=True,save=True):
+    def load_castepData(self,load=True,save=True,use_density=True):
         """
         Returns list of dictionaries. Each dictionary contains the data of a single file
         
@@ -456,7 +459,8 @@ class castep_data():
                 celldict = self.get_atoms('{}{}'.format(name,'.castep'))
                 mulliken = self.get_spins_from_castep('{}{}'.format(name,'.castep'),celldict['positions'].shape[0])
                 celldict['mulliken_spins'] = mulliken
-                celldict['init_spins'] = self.get_init_spins_from_castep('{}{}'.format(name,'.castep'),celldict['positions'].shape[0])
+                if (self.include_init_spins):
+                    celldict['init_spins'] = self.get_init_spins_from_castep('{}{}'.format(name,'.castep'),celldict['positions'].shape[0])
                 fin_dendict = self.get_densities('{}{}'.format(name,'.den_fmt'))
                 if (self.include_init):
                     init_dendict = self.get_densities('{}{}{}'.format(name,'_initial','.den_fmt'))
@@ -639,10 +643,15 @@ class castep_data():
                     init_edensity.append(tmp_arr)
 
             if (fpargs['weighting'] is None):
+                reset=True
                 fpargs['weighting'] = list(0.5*self.data[i]['init_spins'] + 4)
+            else:
+                reset=False
             fp_ = calculate(cell,frac_positions,xyz_,fpargs['nmax'],fpargs['lmax'],rcut=fpargs['rcut'],local_form=fpargs['local_fptype'],\
                 global_form=fpargs['global_fptype'],glmax=fpargs['glmax'],gnmax=fpargs['gnmax'],grcut=fpargs['grcut'],weighting=fpargs['weighting'])
             fp.append(fp_)
+            if (reset):
+                fpargs['weighting'] = None
 
             if (self.nspins>0):
                 if (sampargs['method'] not in ['closest_point'] or not sampling_dict['average']):
